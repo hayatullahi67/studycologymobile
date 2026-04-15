@@ -1,0 +1,7 @@
+{
+  "name": "STUDYCOLOGY Mobile",
+  "description": "An offline-first high-performance Computer Based Test (CBT) platform for exam preparation, featuring practice modes, timed exams, and detailed analytics.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

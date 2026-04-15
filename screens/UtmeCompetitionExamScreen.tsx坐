@@ -1,0 +1,286 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { AppNavigationProp } from '../navigation/types';
+import { useAppStore } from '../store/useAppStore';
+import { Screen } from '../components/Layout';
+import { Ionicons } from '@expo/vector-icons';
+import * as supabaseDB from '../services/supabaseDatabase';
+import { ThemeColors, COLORS } from '../theme/colors';
+
+export function UtmeCompetitionExamScreen() {
+    const navigation = useNavigation<AppNavigationProp>();
+    const route = useRoute<any>();
+    const { competitionId, registrationId } = route.params;
+    
+    const { theme, userProfile } = useAppStore();
+    const isDark = theme === 'dark';
+    const colors = isDark ? ThemeColors.dark : ThemeColors.light;
+
+    const [loading, setLoading] = useState(true);
+    const [competition, setCompetition] = useState<any>(null);
+    const [questions, setQuestions] = useState<any[]>([]);
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const [answers, setAnswers] = useState<Record<string, string>>({});
+    const [timeLeft, setTimeLeft] = useState(0);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        loadCompetitionData();
+    }, []);
+
+    useEffect(() => {
+        if (!competition) return;
+
+        const interval = setInterval(() => {
+            const now = new Date().getTime();
+            const end = new Date(competition.end_time).getTime();
+            const diff = Math.floor((end - now) / 1000);
+            
+            if (diff <= 0) {
+                clearInterval(interval);
+                setTimeLeft(0);
+                handleAutoSubmit();
+            } else {
+                setTimeLeft(diff);
+            }
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [competition]);
+
+    const loadCompetitionData = async () => {
+        try {
+            setLoading(true);
+            const comps = await supabaseDB.getCompetitions();
+            const comp = comps.find(c => c.id === competitionId);
+            
+            if (!comp) {
+                Alert.alert("Error", "Competition not found.");
+                navigation.goBack();
+                return;
+            }
+
+            setCompetition(comp);
+            setQuestions(comp.quiz || []);
+            
+            // Initial time sync
+            const now = new Date().getTime();
+            const end = new Date(comp.end_time).getTime();
+            setTimeLeft(Math.floor((end - now) / 1000));
+        } catch (error) {
+            console.error(error);
+            Alert.alert("Error", "Failed to load competition questions.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAutoSubmit = () => {
+        Alert.alert(
+            "Time's Up!", 
+            "The competition has ended. Your answers are being submitted automatically.",
+            [{ text: "OK", onPress: () => performSubmit() }]
+        );
+    };
+
+    const performSubmit = async () => {
+        if (isSubmitting) return;
+        
+        try {
+            setIsSubmitting(true);
+            
+            // Calculate score
+            let correct = 0;
+            questions.forEach(q => {
+                if (answers[q.id] === q.correct_answer) {
+                    correct++;
+                }
+            });
+
+            const score = questions.length > 0 ? (correct / questions.length) * 400 : 0; // Standard UTME scaling to 400
+            
+            const now = new Date().getTime();
+            const start = new Date(competition.start_time).getTime();
+            const timeTaken = Math.floor((now - start) / 1000);
+
+            await supabaseDB.saveCompetitionResult({
+                competition_id: competitionId,
+                user_id: userProfile?.id,
+                registration_id: registrationId,
+                score: Math.round(score),
+                total: questions.length,
+                time_taken: timeTaken,
+                answers: answers
+            });
+
+            Alert.alert("Race Finished!", "Your results have been submitted to the leaderboard.", [
+                { text: "View Standings", onPress: () => navigation.navigate('UtmeCompetition') }
+            ]);
+        } catch (error) {
+            console.error(error);
+            Alert.alert("Submission Error", "We couldn't save your results. Please contact support if this persists.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const formatTime = (seconds: number) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+    };
+
+    const currentQuestion = questions[currentIndex];
+    const options = currentQuestion ? [
+        { id: 'a', text: currentQuestion.option_a },
+        { id: 'b', text: currentQuestion.option_b },
+        { id: 'c', text: currentQuestion.option_c },
+        { id: 'd', text: currentQuestion.option_d },
+    ] : [];
+
+    if (loading) {
+        return (
+            <View style={[styles.center, { backgroundColor: colors.background }]}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Sychronizing Race Content...</Text>
+            </View>
+        );
+    }
+
+    return (
+        <Screen scrollable={false} style={{ backgroundColor: colors.background }}>
+            {/* Header */}
+            <View style={[styles.header, { borderBottomColor: colors.border }]}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                    <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
+
+                <View style={[styles.timerBox, { backgroundColor: isDark ? '#1E293B' : '#F8FAFC' }]}>
+                    <Ionicons name="stopwatch-outline" size={18} color={COLORS.rose[600]} />
+                    <Text style={[styles.timerText, { color: colors.text }]}>{formatTime(timeLeft)}</Text>
+                </View>
+
+                <TouchableOpacity 
+                    onPress={() => Alert.alert("Finish?", "Are you sure you want to exit the race early?", [
+                        { text: "Stay", style: "cancel" },
+                        { text: "Submit", onPress: performSubmit }
+                    ])} 
+                    style={[styles.finishBtn, { backgroundColor: colors.primary + '15' }]}
+                >
+                    <Text style={[styles.finishBtnText, { color: colors.primary }]}>FINISH</Text>
+                </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.container}>
+                <View style={styles.qHeader}>
+                    <Text style={[styles.qNumber, { color: colors.textSecondary }]}>Question {currentIndex + 1} of {questions.length}</Text>
+                    <View style={styles.liveIndicator}>
+                        <View style={styles.liveDot} />
+                        <Text style={styles.liveText}>LIVE RACE</Text>
+                    </View>
+                </View>
+
+                <Text style={[styles.questionText, { color: colors.text }]}>{currentQuestion?.question}</Text>
+
+                <View style={styles.optionsList}>
+                    {options.map((opt) => {
+                        const isSelected = answers[currentQuestion.id] === opt.id;
+                        return (
+                            <TouchableOpacity
+                                key={opt.id}
+                                onPress={() => setAnswers(prev => ({ ...prev, [currentQuestion.id]: opt.id }))}
+                                style={[
+                                    styles.optionItem,
+                                    { backgroundColor: colors.surface, borderColor: colors.border },
+                                    isSelected && { backgroundColor: colors.primary + '10', borderColor: colors.primary }
+                                ]}
+                            >
+                                <View style={[
+                                    styles.optionCircle,
+                                    { borderColor: colors.border },
+                                    isSelected && { backgroundColor: colors.primary, borderColor: colors.primary }
+                                ]}>
+                                    <Text style={[styles.optionLetter, { color: colors.textSecondary }, isSelected && { color: '#FFF' }]}>
+                                        {opt.id.toUpperCase()}
+                                    </Text>
+                                </View>
+                                <Text style={[styles.optionText, { color: colors.text }, isSelected && { fontWeight: '800' }]}>
+                                    {opt.text}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            </ScrollView>
+
+            {/* Footer Navigation */}
+            <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+                <View style={styles.navButtons}>
+                    <TouchableOpacity
+                        onPress={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+                        disabled={currentIndex === 0}
+                        style={[styles.navBtn, { backgroundColor: colors.surface }, currentIndex === 0 && { opacity: 0.5 }]}
+                    >
+                        <Text style={[styles.navBtnText, { color: colors.textSecondary }]}>PREV</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        onPress={() => {
+                            if (currentIndex < questions.length - 1) {
+                                setCurrentIndex(currentIndex + 1);
+                            } else {
+                                Alert.alert("Race Complete", "You have answered all questions. Submit now?", [
+                                    { text: "No", style: "cancel" },
+                                    { text: "Submit Now", onPress: performSubmit }
+                                ]);
+                            }
+                        }}
+                        style={[styles.navBtn, styles.nextBtn, { backgroundColor: colors.text }]}
+                    >
+                        <Text style={[styles.navBtnText, { color: colors.background }]}>
+                            {currentIndex === questions.length - 1 ? "FINISH" : "NEXT"}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            {isSubmitting && (
+                <View style={styles.overlay}>
+                    <ActivityIndicator size="large" color="#FFF" />
+                    <Text style={styles.overlayText}>Calculating Rank...</Text>
+                </View>
+            )}
+        </Screen>
+    );
+}
+
+const styles = StyleSheet.create({
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    loadingText: { marginTop: 16, fontWeight: '700' },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1 },
+    backBtn: { padding: 8 },
+    timerBox: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+    timerText: { fontSize: 16, fontWeight: '900', fontVariant: ['tabular-nums'] },
+    finishBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
+    finishBtnText: { fontSize: 13, fontWeight: '900' },
+    container: { padding: 24, paddingBottom: 120 },
+    qHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+    qNumber: { fontSize: 11, fontWeight: '900', letterSpacing: 1.5, textTransform: 'uppercase' },
+    liveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FEF2F2', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+    liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#EF4444' },
+    liveText: { fontSize: 10, fontWeight: '900', color: '#EF4444' },
+    questionText: { fontSize: 22, fontWeight: '800', lineHeight: 32, marginBottom: 30 },
+    optionsList: { gap: 12 },
+    optionItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 20, borderWidth: 1.5 },
+    optionCircle: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginRight: 16, borderWidth: 1 },
+    optionLetter: { fontSize: 15, fontWeight: '900' },
+    optionText: { flex: 1, fontSize: 16, fontWeight: '600' },
+    footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 24, paddingBottom: 40, borderTopWidth: 1 },
+    navButtons: { flexDirection: 'row', gap: 12 },
+    navBtn: { flex: 1, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    nextBtn: { flex: 1.5 },
+    navBtnText: { fontSize: 15, fontWeight: '900', letterSpacing: 1 },
+    overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.8)', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
+    overlayText: { color: '#FFF', marginTop: 16, fontWeight: '800', fontSize: 16 }
+});
