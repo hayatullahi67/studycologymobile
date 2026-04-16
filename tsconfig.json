@@ -1,4 +1,5 @@
 {
+  "extends": "./node_modules/expo/tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2022",
     "experimentalDecorators": true,
@@ -25,6 +26,5 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  },
-  "extends": "expo/tsconfig.base"
+  }
 }

@@ -3,7 +3,7 @@
     "name": "Studycology",
     "slug": "studycology-mobile",
     "scheme": "studycology-mobile",
-    "version": "1.0.0",
+    "version": "0.0.10",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ola12ee.studycologymobile",
+      "bundleIdentifier": "com.studycology.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -25,8 +25,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.ola12ee.studycologymobile",
-      "versionCode": 1,
+      "package": "com.studycology.app",
+      "versionCode": 10,
       "usesCleartextTraffic": true
     },
     "web": {

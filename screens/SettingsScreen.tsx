@@ -133,7 +133,7 @@ export function SettingsScreen() {
                         icon="information-circle-outline"
                         color="#864b03" // Brown
                         title="About STUDYCOLOGY"
-                        subtitle="Version 1.0.0"
+                        subtitle="Version 0.0.10"
                         onPress={() => navigation.navigate('About')}
                     />
                 </View>
@@ -143,7 +143,7 @@ export function SettingsScreen() {
                 </TouchableOpacity>
 
                 <View style={styles.footer}>
-                    <Text style={[styles.footerText, { color: '#A1887F' }]}>STUDYCOLOGY v1.0 • Built for Success</Text>
+                    <Text style={[styles.footerText, { color: '#A1887F' }]}>STUDYCOLOGY v0.0.10 • Built for Success</Text>
                 </View>
             </ScrollView>
         </Screen>

@@ -29,7 +29,7 @@ export function AboutScreen() {
                         />
                     </View>
                     <Text style={styles.appName}>STUDYCOLOGY</Text>
-                    <Text style={styles.version}>Version 1.0.0 (Stable)</Text>
+                    <Text style={styles.version}>Version 0.0.10 (Stable)</Text>
                 </View>
 
                 <View style={styles.section}>

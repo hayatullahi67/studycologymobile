@@ -1,4 +1,4 @@
-package com.ola12ee.studycologymobile
+package com.studycology.app
 
 import android.os.Build
 import android.os.Bundle

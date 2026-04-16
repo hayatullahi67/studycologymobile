@@ -3,6 +3,9 @@ const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
 
+// expo-sqlite (web) imports wa-sqlite.wasm; Metro must resolve .wasm as a static asset
+config.resolver.assetExts.push('wasm');
+
 // Disable package exports to force using the 'main' field (CommonJS) instead of 'exports' (ESM/mjs)
 // This resolves the issue where 'zustand' (and potentially others) ship 'import.meta' in their .mjs files
 config.resolver.unstable_enablePackageExports = false;
