@@ -146,12 +146,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         // If the server returns a valid profile, we update. 
         // We explicitly save the 'is_paid' status to local DB immediately.
-        set({ userProfile: mergedProfile });
+        set({ userProfile: { ...mergedProfile, password: localUser.password } });
 
         localDB.saveUserLocal({
           ...mergedProfile,
           password: localUser.password, // Keep the password for next auto-login
-          is_paid: mergedProfile.is_paid ? 1 : 0
+          is_paid: mergedProfile.is_paid ? 1 : 0,
+          current_device_has_premium: mergedProfile.current_device_has_premium ? 1 : 0,
+          premium_revoked_permanently: mergedProfile.premium_revoked_permanently ? 1 : 0,
         });
       }).catch(err => {
         console.warn('[Store] Online profile sync failed, falling back to local profile:', err);
@@ -284,7 +286,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setUserProfile: (profile) => set({ userProfile: profile }),
 
   logout: async () => {
-    set({ userProfile: null });
+    set({ userProfile: null, totalTimeSeconds: 0, currentStage: 'Greenhorn' });
     await localDB.clearUserLocal();
     await localDB.saveSetting('pending_paystack_ref', ''); // Clear payment ref on logout
   },

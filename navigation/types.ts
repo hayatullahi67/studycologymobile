@@ -29,7 +29,7 @@ export type RootStackParamList = {
   HistoryDetail: { resultId: string };
   PastQuestionsPractice: { paperId: string };
   PdfView: { url: string; title: string; isLocal?: boolean };
-  NoteDetail: { noteId: string };
+  NoteDetail: { noteId: string; noteIds?: string[] };
   NoteQuiz: { noteId: string };
   JambTextContent: { textId: string };
   JambTextQuiz: { textId: string };

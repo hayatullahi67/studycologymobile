@@ -1,195 +1,487 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Image, useWindowDimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    ActivityIndicator,
+    TouchableOpacity,
+    FlatList,
+    Image,
+} from 'react-native';
 import { WebView } from 'react-native-webview';
-import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
-import { RootStackParamList } from '../navigation/types';
+import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { RootStackParamList, AppNavigationProp } from '../navigation/types';
+import { Screen, Header } from '../components/Layout';
 import { Ionicons } from '@expo/vector-icons';
 import * as localDB from '../services/localDatabase';
-import { Screen, Header } from '../components/Layout';
 import { useAppStore } from '../store/useAppStore';
+import * as Speech from 'expo-speech';
+
+// ─── Color palette (Harmonious Studycology Theme) ──────────────────────────────────
+const C = {
+    bg: '#FFF8F6',
+    bgDark: '#101920',
+    primary: '#E65100',
+    primaryDeep: '#3E2723',
+    primaryLight: '#FEF3E8',
+    primaryBorder: '#E7D5CB',
+    cream: '#EFEBE9',
+    creamBorder: '#D7CCC8',
+    brown: '#864b03',
+    brownMid: '#5D4037',
+    text: '#1E293B',
+    textMuted: '#475569',
+    textFaint: '#94A3B8',
+    white: '#FFFFFF',
+    divider: '#F1F5F9',
+};
+
+function stripHtml(html: string): string {
+    if (!html) return '';
+    return html
+        .replace(/<[^>]*>/g, ' ') // Strip HTML tags
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/\s+/g, ' ') // Collapse multiple spaces
+        .trim();
+}
+
+type JambTextContentRouteProp = RouteProp<RootStackParamList, 'JambTextContent'>;
 
 export function JambTextContentScreen() {
-    const navigation = useNavigation<any>();
-    const { theme, fontSize, jambTextQuizResults } = useAppStore();
-    const route = useRoute<RouteProp<RootStackParamList, 'JambTextContent'>>();
+    const route = useRoute<JambTextContentRouteProp>();
+    const navigation = useNavigation<AppNavigationProp>();
     const { textId } = route.params;
-    const [text, setText] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
-    const [webViewHeight, setWebViewHeight] = useState(600);
+    const { fontSize, jambTextQuizResults } = useAppStore();
 
-    const score = React.useMemo(() => {
-        const results = jambTextQuizResults.filter(r => r.text_id === textId);
-        if (results.length === 0) return null;
-        const maxScore = Math.max(...results.map(r => r.score));
-        const total = results[0].total;
-        return { score: maxScore, total };
-    }, [jambTextQuizResults, textId]);
-
-    const isDark = theme === 'dark';
     const bodySize = fontSize === 'small' ? 14 : fontSize === 'medium' ? 16 : fontSize === 'large' ? 19 : 22;
 
+    const [text, setText] = useState<any>(null); // Represents the base book metadata
+    const [bookSubheadings, setBookSubheadings] = useState<any[]>([]); // List of all chapters/subheadings
+    const [loading, setLoading] = useState(true);
+
+    // 'list' = showing the subheadings list, 'note' = reading a specific subheading
+    const [viewMode, setViewMode] = useState<'list' | 'note'>('list');
+    const [activeSubheading, setActiveSubheading] = useState<any>(null);
+    const [webViewHeight, setWebViewHeight] = useState(260);
+    const [score, setScore] = useState<{ score: number; total: number } | null>(null);
+
+    const [isSpeaking, setIsSpeaking] = useState(false);
+
     useEffect(() => {
-        loadContent();
+        loadBookData();
+        return () => {
+            Speech.stop();
+        };
     }, [textId]);
 
-    const loadContent = async () => {
+    useEffect(() => {
+        return () => {
+            Speech.stop();
+            setIsSpeaking(false);
+        };
+    }, [activeSubheading]);
+
+    const stopSpeaking = () => {
+        Speech.stop();
+        setIsSpeaking(false);
+    };
+
+    const speakNote = (note: any) => {
+        if (!note) return;
+        Speech.stop(); // Stop any ongoing speech first
+
+        const titleText = note.subheading || note.title || 'Chapter';
+        const bodyText = stripHtml(note.content || '');
+        const combinedText = `${titleText}. ${bodyText}`;
+
+        setIsSpeaking(true);
+        Speech.speak(combinedText, {
+            onDone: () => setIsSpeaking(false),
+            onStopped: () => setIsSpeaking(false),
+            onError: () => setIsSpeaking(false),
+        });
+    };
+
+    const toggleSpeech = () => {
+        if (isSpeaking) {
+            stopSpeaking();
+        } else {
+            speakNote(activeSubheading);
+        }
+    };
+
+    const loadBookData = async () => {
         try {
+            setLoading(true);
             const database = await localDB.initLocalDatabase();
-            const data: any = await database.getFirstAsync('SELECT * FROM jamb_texts WHERE id = ?', textId);
-            setText(data);
-        } catch (error) {
-            console.error(error);
+            
+            // 1. Fetch selected text row
+            const selectedText: any = await database.getFirstAsync('SELECT * FROM jamb_texts WHERE id = ?', textId);
+            if (!selectedText) {
+                setLoading(false);
+                return;
+            }
+
+            // 2. Fetch all chapters/subheadings sharing the same title (or title + category)
+            const rows: any[] = await database.getAllAsync(
+                'SELECT * FROM jamb_texts WHERE LOWER(TRIM(title)) = LOWER(TRIM(?)) ORDER BY created_at ASC',
+                [selectedText.title]
+            );
+
+            const sortedSubheadings = rows
+                .filter(Boolean)
+                .sort((a: any, b: any) => {
+                    if (a.is_default && !b.is_default) return -1;
+                    if (!a.is_default && b.is_default) return 1;
+                    return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+                })
+                .map((item: any) => ({
+                    ...item,
+                    quiz: item.quiz ? (typeof item.quiz === 'string' ? JSON.parse(item.quiz) : item.quiz) : []
+                }));
+
+            setText(selectedText);
+            setBookSubheadings(sortedSubheadings);
+
+            // Backward Compatibility Fallback:
+            // If there's only 1 row, and its subheading field is empty, go straight to reading mode
+            const firstRow = sortedSubheadings[0] || selectedText;
+            if (sortedSubheadings.length === 1 && (!firstRow.subheading || firstRow.subheading.trim() === '')) {
+                setActiveSubheading(firstRow);
+                setViewMode('note');
+                // Load score for this specific text quiz
+                loadQuizScore(firstRow.id);
+            } else {
+                setViewMode('list');
+            }
+        } catch (err) {
+            console.error('Error loading JAMB text:', err);
         } finally {
             setLoading(false);
         }
     };
 
+    const loadQuizScore = async (idToQuery: string) => {
+        try {
+            const scoreData = await localDB.getJambTextHighestScore(idToQuery);
+            setScore(scoreData);
+        } catch (err) {
+            console.error('Error loading quiz score:', err);
+            setScore(null);
+        }
+    };
+
+    const openSubheading = async (item: any) => {
+        setActiveSubheading(item);
+        setWebViewHeight(260);
+        setViewMode('note');
+
+        // Load quiz score for this specific chapter
+        await loadQuizScore(item.id);
+
+        // Start reading aloud automatically
+        speakNote(item);
+    };
+
+    const goBack = () => {
+        if (viewMode === 'note') {
+            stopSpeaking();
+            
+            // If the book ONLY has a single subheading, go back to texts list directly
+            if (bookSubheadings.length === 1 && (!bookSubheadings[0].subheading || bookSubheadings[0].subheading.trim() === '')) {
+                navigation.goBack();
+            } else {
+                setViewMode('list');
+                setActiveSubheading(null);
+                setScore(null);
+            }
+        } else {
+            navigation.goBack();
+        }
+    };
+
     if (loading) {
         return (
-            <Screen style={[styles.center, isDark ? { backgroundColor: '#0b141a' } : null]}>
-                <ActivityIndicator size="large" color="#E65100" />
+            <Screen style={[styles.center, { backgroundColor: C.bgDark }]}>
+                <ActivityIndicator color={C.primary} size="large" />
             </Screen>
         );
     }
 
     if (!text) {
         return (
-            <Screen style={[styles.center, isDark ? { backgroundColor: '#0b141a' } : null]}>
-                <Text style={styles.errorText}>Content not found</Text>
+            <Screen style={[styles.center, { backgroundColor: C.bg }]}>
+                <Text style={{ color: C.textMuted, fontSize: 16, fontWeight: '700' }}>Book not found</Text>
             </Screen>
         );
     }
 
-    return (
-        <Screen style={[styles.container, { backgroundColor: '#FFF8F6' }]}>
-            <Header
-                title="Back"
-                onBack={() => navigation.goBack()}
-                style={{ backgroundColor: '#FFF8F6', borderBottomColor: '#FFF8F6' }}
-                titleStyle={{ color: '#000000' }}
-                iconColor="#000000"
-            />
-            <ScrollView contentContainerStyle={styles.content}>
-                <View style={styles.heroSection}>
-                    {text.thumbnail_url ? (
-                        <View style={styles.coverWrapper}>
-                            <Image source={{ uri: text.thumbnail_url }} style={styles.bookCover} resizeMode="cover" />
+    // ─── Subheadings List View ──────────────────────────────────────────────────
+    if (viewMode === 'list') {
+        const hasSubheadings = bookSubheadings.length > 0;
+        const totalSubheadings = bookSubheadings.length;
+
+        return (
+            <Screen scrollable={false} style={{ backgroundColor: C.bg, flex: 1 }}>
+                <Header
+                    title="Novel Info"
+                    onBack={goBack}
+                    style={{ backgroundColor: C.bg, borderBottomColor: C.bg }}
+                    titleStyle={{ color: C.text }}
+                    iconColor={C.text}
+                />
+
+                <FlatList
+                    data={bookSubheadings}
+                    keyExtractor={(item) => item.id}
+                    contentContainerStyle={styles.listContent}
+                    ItemSeparatorComponent={() => <View style={styles.separator} />}
+                    ListHeaderComponent={
+                        <View style={styles.listHeader}>
+                            <View style={styles.heroSection}>
+                                {text.thumbnail_url ? (
+                                    <View style={styles.coverWrapper}>
+                                        <Image source={{ uri: text.thumbnail_url }} style={styles.bookCover} resizeMode="cover" />
+                                    </View>
+                                ) : (
+                                    <View style={[styles.coverWrapper, styles.placeholderCover]}>
+                                        <Ionicons name="book" size={50} color="rgba(230, 81, 0, 0.2)" />
+                                    </View>
+                                )}
+                                <View style={styles.heroText}>
+                                    <View style={styles.subjectBadge}>
+                                        <Text style={styles.subjectText}>
+                                            {text.type === 'literature' ? 'LITERATURE' : 'ENGLISH'}
+                                        </Text>
+                                    </View>
+                                    <Text style={styles.listTitle} numberOfLines={3}>{text.title}</Text>
+                                    {text.author && <Text style={styles.author}>by {text.author}</Text>}
+                                    <Text style={styles.countLabel}>
+                                        {totalSubheadings} {totalSubheadings === 1 ? 'Section' : 'Sections'} Available
+                                    </Text>
+                                </View>
+                            </View>
+                            <View style={styles.divider} />
+                            <Text style={styles.chaptersTitle}>Book Outline</Text>
                         </View>
-                    ) : (
-                        <View style={[styles.coverWrapper, styles.placeholderCover]}>
-                            <Ionicons name="book" size={60} color="rgba(230, 81, 0, 0.2)" />
-                        </View>
+                    }
+                    renderItem={({ item, index }) => (
+                        <SubheadingRow
+                            item={item}
+                            index={index}
+                            onPress={() => openSubheading(item)}
+                        />
                     )}
-                    <View style={styles.heroText}>
-                        <Text style={[styles.title, isDark && { color: '#F1F5F9' }]}>{text.title}</Text>
-                        {text.author && <Text style={styles.author}>by {text.author}</Text>}
-                        <View style={styles.typeBadge}>
-                            <Text style={styles.typeBadgeText}>{text.type === 'literature' ? 'LITERATURE' : 'ENGLISH'}</Text>
-                        </View>
+                />
+            </Screen>
+        );
+    }
+
+    // ─── Reading Note View ────────────────────────────────────────────────────
+    if (!activeSubheading) return null;
+
+    const subheadingSubtitle = activeSubheading.subheading || activeSubheading.title || 'Chapter Content';
+    const noteBody = activeSubheading.content || '';
+    const quiz = Array.isArray(activeSubheading.quiz) ? activeSubheading.quiz : [];
+
+    const contentHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html, body {
+                font-family: -apple-system, system-ui;
+                font-size: ${bodySize}px;
+                line-height: 1.6;
+                color: #3E2723;
+                background-color: transparent;
+                width: 100%;
+                height: auto;
+                overflow: hidden;
+            }
+            h1, h2, h3, h4 {
+                color: #E65100;
+                font-weight: 800;
+                margin: 0 0 0.6em;
+            }
+            .ql-container.ql-snow { border: none !important; }
+            .ql-editor {
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+                height: auto !important;
+                min-height: unset !important;
+            }
+            .ql-editor p { margin: 0 0 0.85em; line-height: 1.6; }
+            .ql-editor p:last-child { margin-bottom: 0; }
+            .ql-editor ul, .ql-editor ol { margin: 0 0 0.8em; padding-left: 18px; }
+            .ql-editor li { margin-bottom: 0.35em; }
+            .ql-editor blockquote {
+                border-left: 4px solid #E65100;
+                padding-left: 16px;
+                color: #5D4037;
+                font-style: italic;
+                margin-bottom: 0.8em;
+            }
+            img { max-width: 100%; height: auto; border-radius: 8px; }
+        </style>
+    </head>
+    <body class="ql-snow">
+        <div class="ql-editor" id="content">${noteBody || ''}</div>
+        <script>
+            var lastH = 0;
+            var stableCount = 0;
+
+            function pollUntilStable() {
+                var content = document.getElementById('content');
+                var h = Math.max(document.body.scrollHeight, content.scrollHeight, content.offsetHeight);
+                if (h > 0 && h === lastH) {
+                    stableCount++;
+                    if (stableCount >= 3) {
+                        window.ReactNativeWebView.postMessage(String(h));
+                        return;
+                    }
+                } else {
+                    stableCount = 0;
+                    lastH = h;
+                }
+                setTimeout(pollUntilStable, 100);
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                pollUntilStable();
+            });
+        </script>
+    </body>
+    </html>
+    `;
+
+    return (
+        <Screen scrollable={false} style={{ backgroundColor: C.bg, flex: 1 }}>
+            <Header
+                title={subheadingSubtitle}
+                onBack={goBack}
+                style={{ backgroundColor: C.bg, borderBottomColor: C.bg }}
+                titleStyle={{ color: C.text }}
+                iconColor={C.text}
+                rightElement={
+                    <TouchableOpacity
+                        onPress={toggleSpeech}
+                        style={{ padding: 8, marginRight: -8 }}
+                        activeOpacity={0.7}
+                    >
+                        <Ionicons
+                            name={isSpeaking ? "volume-high" : "volume-medium-outline"}
+                            size={24}
+                            color={isSpeaking ? C.primary : C.text}
+                        />
+                    </TouchableOpacity>
+                }
+            />
+
+            <ScrollView
+                contentContainerStyle={styles.noteContent}
+                showsVerticalScrollIndicator={false}
+            >
+                {/* Book & Section Details */}
+                <View style={styles.noteHeaderBlock}>
+                    <View style={styles.subjectBadge}>
+                        <Text style={styles.subjectText}>
+                            {text.type === 'literature' ? 'LITERATURE' : 'ENGLISH'}
+                        </Text>
+                    </View>
+                    <Text style={styles.noteMainTitle}>{subheadingSubtitle}</Text>
+                    <Text style={styles.noteBookTitle}>From the novel: "{text.title}"</Text>
+
+                    <View style={styles.dateRow}>
+                        <Ionicons name="calendar-outline" size={13} color={C.textMuted} />
+                        <Text style={styles.dateText}>
+                            {new Date(activeSubheading.created_at).toLocaleDateString(undefined, {
+                                day: 'numeric', month: 'short', year: 'numeric',
+                            })}
+                        </Text>
                     </View>
                 </View>
 
-                <View style={[styles.divider, isDark && { backgroundColor: 'rgba(255,255,255,0.05)' }]} />
-
-                <View style={[styles.richContentContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }]}>
+                {/* WebView content card */}
+                <View style={styles.noteCard}>
                     <WebView
                         originWhitelist={['*']}
-                        source={{
-                            html: `
-                                <html>
-                                <head>
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                                    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-                                    <style>
-                                        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-                                        body {
-                                            font-family: 'Inter', -apple-system, system-ui;
-                                            font-size: ${bodySize}px;
-                                            line-height: 1.7;
-                                            color: #3E2723;
-                                            background-color: transparent;
-                                            margin: 0;
-                                            padding: 4px;
-                                        }
-                                        h1, h2, h3, h4 { 
-                                            color: #E65100; 
-                                            margin-top: 1.5em; 
-                                            margin-bottom: 0.5em;
-                                            font-weight: 800;
-                                        }
-                                        .ql-editor { padding: 0 !important; }
-                                        .ql-editor p { margin-bottom: 1.2em; }
-                                        .ql-editor blockquote {
-                                            border-left: 4px solid #E65100;
-                                            padding-left: 16px;
-                                            color: #5D4037;
-                                            font-style: italic;
-                                        }
-                                        img { max-width: 100%; height: auto; border-radius: 8px; }
-                                    </style>
-                                </head>
-                                <body class="ql-snow">
-                                    <div class="ql-editor" id="content">
-                                        ${text.content}
-                                    </div>
-                                    <script>
-                                        // Communicate height to parent to avoid nested scroll
-                                        function sendHeight() {
-                                            const height = document.getElementById('content').offsetHeight;
-                                            window.ReactNativeWebView.postMessage(height);
-                                        }
-                                        window.onload = sendHeight;
-                                        window.addEventListener('resize', sendHeight);
-                                    </script>
-                                </body>
-                                </html>
-                            `
-                        }}
-                        onMessage={(event) => {
-                            const newHeight = parseInt(event.nativeEvent.data);
-                            if (newHeight > 0) setWebViewHeight(newHeight + 40);
+                        source={{ html: contentHtml }}
+                        onMessage={(e) => {
+                            const h = parseInt(e.nativeEvent.data);
+                            if (h > 0) setWebViewHeight(h + 32);
                         }}
                         style={{ height: webViewHeight, backgroundColor: 'transparent' }}
-                        scrollEnabled={true}
-                        nestedScrollEnabled={true}
-                        javaScriptEnabled={true}
-                        // domStorageEnabled={true
+                        scrollEnabled={false}
+                        javaScriptEnabled
                     />
                 </View>
-            </ScrollView>
 
-            {text.quiz && text.quiz.length > 0 && (
-                <View style={[styles.footer, { backgroundColor: '#FFF8F6', borderTopColor: '#E2E8F0' }]}>
+                {/* Subheading Quiz CTA */}
+                {quiz.length > 0 && (
                     <TouchableOpacity
-                        style={[styles.quizBtn, { backgroundColor: '#3E2723' }]}
-                        onPress={() => navigation.navigate('JambTextQuiz', { textId })}
+                        activeOpacity={0.85}
+                        style={styles.quizBtn}
+                        onPress={() => navigation.navigate('JambTextQuiz', { textId: activeSubheading.id })}
                     >
-                        <View style={styles.quizBtnContent}>
-                            <View style={styles.quizIconContainer}>
-                                <Ionicons name="school" size={24} color="#FFF" />
-                            </View>
-                            <View>
-                                <Text style={styles.quizBtnText}>Test Your Knowledge</Text>
-                                <Text style={styles.quizBtnSubtext}>
-                                    {score ? `Best Score: ${score.score}/${score.total}` : `${text.quiz.length} Questions Available`}
-                                </Text>
-                            </View>
+                        <View style={styles.quizBtnIcon}>
+                            <Ionicons name="school" size={22} color={C.white} />
                         </View>
-                        <Ionicons name="chevron-forward" size={20} color="#FFF" />
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.quizBtnTitle}>Test Your Knowledge</Text>
+                            <Text style={styles.quizBtnSub}>
+                                {score
+                                    ? `Best Score: ${score.score}/${score.total}`
+                                    : `${quiz.length} question quiz`}
+                            </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={C.white} />
                     </TouchableOpacity>
-                </View>
-            )}
+                )}
+            </ScrollView>
         </Screen>
     );
 }
 
+// ─── Subheading Outlined Row Component ───────────────────────────────────────────
+function SubheadingRow({ item, index, onPress }: { item: any; index: number; onPress: () => void }) {
+    const label = item.subheading || item.title || `Section ${index + 1}`;
+    const hasQuiz = Array.isArray(item.quiz) && item.quiz.length > 0;
+
+    return (
+        <TouchableOpacity
+            activeOpacity={0.7}
+            style={styles.subtopicRow}
+            onPress={onPress}
+        >
+            <View style={styles.subtopicDot} />
+            <View style={styles.subtopicTextWrap}>
+                <Text style={styles.subtopicLabel} numberOfLines={2}>{label}</Text>
+                {hasQuiz && (
+                    <Text style={styles.quizTag}>Quiz available</Text>
+                )}
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={C.textFaint} />
+        </TouchableOpacity>
+    );
+}
+
+// ─── Styling definitions ──────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#FFFFFF' },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    content: { padding: 16, paddingBottom: 40 },
-    title: { fontSize: 20, fontWeight: '900', color: '#1E293B', marginBottom: 6 },
-    author: { fontSize: 13, fontWeight: '700', color: '#E65100', marginBottom: 12 },
-    heroSection: { flexDirection: 'row', gap: 16, marginBottom: 20 },
+
+    // Outline / Chapters List view
+    listContent: { paddingHorizontal: 16, paddingBottom: 40 },
+    listHeader: { paddingTop: 8, paddingBottom: 12 },
+    heroSection: { flexDirection: 'row', gap: 16 },
     coverWrapper: {
         width: 100,
         aspectRatio: 0.7,
@@ -197,27 +489,84 @@ const styles = StyleSheet.create({
         backgroundColor: '#EFEBE9',
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
+        borderColor: C.creamBorder,
         elevation: 4
     },
     bookCover: { width: '100%', height: '100%' },
     placeholderCover: { alignItems: 'center', justifyContent: 'center' },
     heroText: { flex: 1, justifyContent: 'center' },
-    typeBadge: {
-        alignSelf: 'flex-start',
-        backgroundColor: 'rgba(230, 81, 0, 0.1)',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 6
+    author: { fontSize: 13, fontWeight: '700', color: C.primary, marginBottom: 8 },
+    listTitle: {
+        fontSize: 18, fontWeight: '900', color: C.text,
+        marginBottom: 2, lineHeight: 24,
     },
-    typeBadgeText: { color: '#E65100', fontSize: 10, fontWeight: '900' },
-    divider: { height: 1, backgroundColor: '#F1F5F9', marginBottom: 24, marginHorizontal: -16 },
-    richContentContainer: { flex: 1, padding: 16, borderRadius: 20, marginBottom: 20 },
-    errorText: { fontSize: 15, fontWeight: '700', color: '#64748B' },
-    footer: { padding: 12, paddingBottom: 24, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#F1F5F9' },
-    quizBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderRadius: 12, elevation: 4, shadowColor: '#E65100', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
-    quizBtnContent: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    quizIconContainer: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255, 255, 255, 0.2)', alignItems: 'center', justifyContent: 'center' },
-    quizBtnText: { color: '#FFF', fontSize: 16, fontWeight: '900' },
-    quizBtnSubtext: { color: 'rgba(255, 255, 255, 0.8)', fontSize: 12, fontWeight: '700', marginTop: 1 }
+    countLabel: { fontSize: 11, fontWeight: '700', color: C.textMuted },
+    divider: { height: 1, backgroundColor: C.divider, marginVertical: 20 },
+    chaptersTitle: { fontSize: 14, fontWeight: '900', color: C.primaryDeep, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 12 },
+
+    separator: { height: 1, backgroundColor: C.divider, marginLeft: 44 },
+
+    subtopicRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 16,
+        paddingHorizontal: 4,
+        backgroundColor: C.white,
+    },
+    subtopicDot: {
+        width: 8, height: 8, borderRadius: 4,
+        backgroundColor: C.primary, marginRight: 14,
+    },
+    subtopicTextWrap: { flex: 1 },
+    subtopicLabel: { fontSize: 15, fontWeight: '700', color: C.text, lineHeight: 21 },
+    quizTag: {
+        fontSize: 10, fontWeight: '800', color: C.brown,
+        marginTop: 3, textTransform: 'uppercase', letterSpacing: 0.4,
+    },
+
+    // Badges & outlines
+    subjectBadge: {
+        alignSelf: 'flex-start',
+        backgroundColor: C.cream,
+        paddingHorizontal: 10, paddingVertical: 4,
+        borderRadius: 8, borderWidth: 1, borderColor: C.creamBorder,
+        marginBottom: 8,
+    },
+    subjectText: {
+        color: C.primaryDeep, fontSize: 10,
+        fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase',
+    },
+
+    // Reading pane view
+    noteContent: { padding: 16, paddingBottom: 40 },
+    noteHeaderBlock: { marginBottom: 16 },
+    noteMainTitle: {
+        fontSize: 22, fontWeight: '900', color: C.text,
+        marginTop: 10, marginBottom: 4, lineHeight: 28,
+    },
+    noteBookTitle: { fontSize: 13, fontWeight: '700', color: C.primary, marginBottom: 12 },
+    dateRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    dateText: { fontSize: 12, fontWeight: '700', color: C.textMuted },
+
+    noteCard: {
+        backgroundColor: C.white,
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: C.primaryBorder,
+        marginBottom: 16,
+    },
+
+    quizBtn: {
+        flexDirection: 'row', alignItems: 'center', gap: 12,
+        backgroundColor: C.primaryDeep,
+        borderRadius: 16, padding: 14, marginTop: 4,
+    },
+    quizBtnIcon: {
+        width: 42, height: 42, borderRadius: 11,
+        backgroundColor: 'rgba(255,255,255,0.18)',
+        alignItems: 'center', justifyContent: 'center',
+    },
+    quizBtnTitle: { color: C.white, fontSize: 15, fontWeight: '900' },
+    quizBtnSub: { color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: '700', marginTop: 2 },
 });

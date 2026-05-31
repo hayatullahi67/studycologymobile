@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, TextInput, ActivityIndicator, FlatList, Linking, KeyboardAvoidingView, Platform, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import { Picker } from '@react-native-picker/picker';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as supabaseDB from '../../../services/supabaseDatabase';
 import { useAppStore } from '../../../store/useAppStore';
@@ -26,6 +27,14 @@ interface PdfResource {
     createdAt: string;
 }
 
+const normalizeExamName = (exam: string): string => {
+    const normalized = exam?.toUpperCase().trim() || '';
+    if (normalized.includes('WAEC')) return 'WAEC';
+    if (normalized.includes('JAMB')) return 'JAMB';
+    if (normalized.includes('POST') || normalized.includes('UTME')) return 'POST UTME';
+    return normalized;
+};
+
 export function UploadPdfView({ onBack }: UploadPdfViewProps) {
     const navigation = useNavigation<AppNavigationProp>();
     const { theme } = useAppStore();
@@ -36,13 +45,14 @@ export function UploadPdfView({ onBack }: UploadPdfViewProps) {
     // Upload State
     const [selectedFile, setSelectedFile] = useState<any>(null);
     const [uploading, setUploading] = useState(false);
-    const [exam, setExam] = useState('');
+    const [exam, setExam] = useState('WAEC');
     const [year, setYear] = useState('');
     const [subject, setSubject] = useState('');
 
     // List State
     const [pdfResources, setPdfResources] = useState<PdfResource[]>([]);
     const [loadingList, setLoadingList] = useState(false);
+    const [selectedTab, setSelectedTab] = useState('WAEC');
 
     // Edit State
     const [editModalVisible, setEditModalVisible] = useState(false);
@@ -64,7 +74,11 @@ export function UploadPdfView({ onBack }: UploadPdfViewProps) {
         try {
             setLoadingList(true);
             const data = await supabaseDB.getAllPdfResources();
-            setPdfResources(data as any);
+            const normalizedData = (data as any[]).map(pdf => ({
+                ...pdf,
+                exam: normalizeExamName(pdf.exam)
+            }));
+            setPdfResources(normalizedData as any);
         } catch (error) {
             console.error(error);
             Alert.alert('Error', 'Failed to load PDF resources');
@@ -292,13 +306,17 @@ export function UploadPdfView({ onBack }: UploadPdfViewProps) {
 
                         <View style={[styles.formContainer, { backgroundColor: '#FFFFFF', borderColor: '#D7CCC8' }]}>
                             <Text style={[styles.label, { color: '#8D6E63' }]}>EXAM NAME</Text>
-                            <TextInput
-                                style={[styles.input, { backgroundColor: '#FFFFFF', borderColor: '#D7CCC8', color: '#3E2723' }]}
-                                placeholder="e.g. JAMB, WAEC"
-                                placeholderTextColor="#BCAAA4"
-                                value={exam}
-                                onChangeText={setExam}
-                            />
+                            <View style={[styles.inputt, { backgroundColor: '#FFFFFF', borderColor: '#D7CCC8' }]}>
+                                <Picker
+                                    selectedValue={exam}
+                                    onValueChange={(itemValue) => setExam(itemValue)}
+                                    style={{ color: '#3E2723' }}
+                                >
+                                    <Picker.Item label="WAEC" value="WAEC" />
+                                    <Picker.Item label="JAMB" value="JAMB" />
+                                    <Picker.Item label="POST UTME" value="POST UTME" />
+                                </Picker>
+                            </View>
 
                             <Text style={[styles.label, { color: '#8D6E63' }]}>YEAR</Text>
                             <TextInput
@@ -353,13 +371,26 @@ export function UploadPdfView({ onBack }: UploadPdfViewProps) {
                             <Text style={[styles.emptyStateSubtext, { color: colors.textSecondary }]}>Go to "Upload New" to add your first resource</Text>
                         </View>
                     ) : (
-                        <FlatList
-                            data={pdfResources}
-                            keyExtractor={(item) => item.id}
-                            renderItem={renderPdfItem}
-                            contentContainerStyle={styles.listContent}
-                            showsVerticalScrollIndicator={false}
-                        />
+                        <View>
+                            <View style={styles.tabContainer}>
+                                {['WAEC', 'JAMB', 'POST UTME'].map((tab) => (
+                                    <TouchableOpacity
+                                        key={tab}
+                                        style={[styles.tabBtn, selectedTab === tab && styles.activeTab]}
+                                        onPress={() => setSelectedTab(tab)}
+                                    >
+                                        <Text style={[styles.tabText, selectedTab === tab && styles.activeTabText]}>{tab}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                            <FlatList
+                                data={pdfResources.filter(p => p.exam === selectedTab)}
+                                keyExtractor={(item) => item.id}
+                                renderItem={renderPdfItem}
+                                contentContainerStyle={styles.listContent}
+                                showsVerticalScrollIndicator={false}
+                            />
+                        </View>
                     )}
                 </View>
             )}
@@ -381,11 +412,17 @@ export function UploadPdfView({ onBack }: UploadPdfViewProps) {
                         </View>
 
                         <Text style={styles.editLabel}>EXAM</Text>
-                        <TextInput
-                            style={styles.editInput}
-                            value={editExam}
-                            onChangeText={setEditExam}
-                        />
+                        <View style={styles.editInput}>
+                            <Picker
+                                selectedValue={editExam}
+                                onValueChange={(itemValue) => setEditExam(itemValue)}
+                                style={{ color: '#3E2723' }}
+                            >
+                                <Picker.Item label="WAEC" value="WAEC" />
+                                <Picker.Item label="JAMB" value="JAMB" />
+                                <Picker.Item label="POST UTME" value="POST UTME" />
+                            </Picker>
+                        </View>
 
                         <Text style={styles.editLabel}>YEAR</Text>
                         <TextInput
@@ -439,6 +476,7 @@ const styles = StyleSheet.create({
     formContainer: { borderRadius: 24, padding: 20, marginBottom: 24, borderWidth: 1 },
     label: { fontSize: 11, fontWeight: '900', marginBottom: 8, letterSpacing: 1 },
     input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 20, fontSize: 14, fontWeight: '600' },
+    inputt: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 1, marginBottom: 20, fontSize: 14, fontWeight: '600' },
     webUploadBtn: { borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8, elevation: 2 },
     webUploadText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
     infoBox: { flexDirection: 'row', gap: 12, padding: 16, borderRadius: 20, alignItems: 'center' },
@@ -462,5 +500,10 @@ const styles = StyleSheet.create({
     editLabel: { fontSize: 10, fontWeight: '900', marginBottom: 8, color: '#8D6E63' },
     editInput: { borderWidth: 1, borderColor: '#D7CCC8', borderRadius: 12, padding: 12, marginBottom: 16, fontSize: 14, fontWeight: '600' },
     saveBtn: { borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
-    saveBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' }
+    saveBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
+    tabContainer: { flexDirection: 'row', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
+    tabBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, marginHorizontal: 2 },
+    activeTab: { backgroundColor: '#864b03' },
+    tabText: { fontSize: 13, fontWeight: '800', color: '#64748B' },
+    activeTabText: { color: '#FFFFFF' }
 });

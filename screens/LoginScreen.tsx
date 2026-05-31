@@ -5,7 +5,7 @@ import { AppNavigationProp } from '../navigation/types';
 import { Screen } from '../components/Layout';
 import { Button } from '../components/Button';
 import { Ionicons } from '@expo/vector-icons';
-import { signInUser, resetPasswordForEmail } from '../services/supabaseDatabase';
+import { signInUser } from '../services/supabaseDatabase';
 import { saveUserLocal, getLocalUser } from '../services/localDatabase';
 import NetInfo from '@react-native-community/netinfo';
 import { useAppStore } from '../store/useAppStore';
@@ -22,9 +22,6 @@ export function LoginScreen() {
     const handleForgotPassword = () => {
         navigation.navigate('ForgotPassword');
     };
-
-
-
     const handleLogin = async () => {
         if (!email || !password) {
             Alert.alert('Error', 'Please enter both email and password');
@@ -37,23 +34,33 @@ export function LoginScreen() {
 
             if (netInfo.isConnected) {
                 // ONLINE LOGIN
-                const profile = await signInUser(email, password);
+                const resolvedProfile = await signInUser(email, password);
                 const { setUserProfile } = useAppStore.getState();
 
                 // Cache user for future offline login
                 await saveUserLocal({
-                    id: profile.id,
+                    id: resolvedProfile.id,
                     email: email,
                     password: password,
-                    name: profile.name,
-                    role: profile.role,
-                    is_paid: profile.is_paid ? 1 : 0,
-                    expiry_date: profile.expiry_date,
-                    created_at: profile.created_at
+                    name: resolvedProfile.name,
+                    role: resolvedProfile.role,
+                    assigned_view: resolvedProfile.assigned_view || null,
+                    is_paid: resolvedProfile.is_paid ? 1 : 0,
+                    expiry_date: resolvedProfile.expiry_date,
+                    created_at: resolvedProfile.created_at,
+                    active_premium_device_id: resolvedProfile.active_premium_device_id,
+                    active_premium_device_name: resolvedProfile.active_premium_device_name,
+                    current_device_id: resolvedProfile.current_device_id,
+                    current_device_name: resolvedProfile.current_device_name,
+                    current_device_has_premium: resolvedProfile.current_device_has_premium ? 1 : 0,
+                    premium_revoked_permanently: resolvedProfile.premium_revoked_permanently ? 1 : 0,
+                    device_access_state: resolvedProfile.device_access_state,
+                    premium_checked_at: resolvedProfile.premium_checked_at,
+                    premium_offline_valid_until: resolvedProfile.premium_offline_valid_until,
                 });
 
-                setUserProfile(profile);
-                navigateByRole(profile.role);
+                setUserProfile({ ...resolvedProfile, password });
+                navigateByRole(resolvedProfile.role);
             } else {
                 // OFFLINE LOGIN
                 const localUser = await getLocalUser(email, password);

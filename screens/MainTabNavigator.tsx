@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { View, StyleSheet, Platform, Alert } from 'react-native';
 import { MainTabParamList } from '../navigation/types';
 import { useAppStore } from '../store/useAppStore';
+import { isPremiumActiveOnCurrentDevice } from '../services/premiumAccess';
 
 import { ThemeColors } from '../theme/colors';
 import { HomeScreen } from './HomeScreen';
@@ -19,9 +20,7 @@ export function MainTabNavigator() {
     const { theme, userProfile } = useAppStore();
     const isDark = theme === 'dark';
     const colors = isDark ? ThemeColors.dark : ThemeColors.light;
-    const isPaid = (userProfile?.is_paid === true || userProfile?.is_paid === 1)
-        && !!userProfile?.expiry_date
-        && new Date(userProfile.expiry_date) > new Date();
+    const isPaid = isPremiumActiveOnCurrentDevice(userProfile);
 
     const handleLockedTab = (e: any, label: string) => {
         if (!isPaid) {

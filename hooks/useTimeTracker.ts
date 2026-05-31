@@ -1,60 +1,57 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import * as localDB from '../services/localDatabase';
-
-interface UserProgress {
-  totalSeconds: number;
-  currentStage: string;
-  stageStartTime: number;
-  lastUpdated: string;
-}
-
-const STAGES = [
-  { name: 'Greenhorn', minHours: 0, maxHours: 2, color: '#8B5CF6' },
-  { name: 'Learner', minHours: 2, maxHours: 7, color: '#3B82F6' },
-  { name: 'Reader', minHours: 7, maxHours: 22, color: '#10B981' },
-  { name: 'Ace', minHours: 22, maxHours: 47, color: '#F59E0B' },
-  { name: 'Genius', minHours: 47, maxHours: 82, color: '#EF4444' },
-  { name: 'Maverick', minHours: 82, maxHours: 117, color: '#EC4899' },
-  { name: 'Titan', minHours: 117, maxHours: Infinity, color: '#7C3AED' },
-];
+import {
+  DEFAULT_USER_PROGRESS,
+  TIME_TRACKING_STAGES,
+  UserProgress,
+  getUserProgressStorageKey,
+} from '../services/timeTracking';
 
 export function useTimeTracker() {
-  const { totalTimeSeconds, currentStage } = useAppStore();
+  const { totalTimeSeconds, currentStage, userProfile } = useAppStore();
+  const userId = userProfile?.id ?? null;
   
   console.log('[useTimeTracker] State changed:', { totalTimeSeconds, currentStage });
   
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load initial data from database if global state is empty
     const loadInitialData = async () => {
       try {
-        const saved = await localDB.getSetting('user_progress');
+        setLoading(true);
+        const saved = await localDB.getSetting(getUserProgressStorageKey(userId));
         if (saved) {
-          const progress = JSON.parse(saved);
-          // Update global state with saved data
+          const progress: UserProgress = JSON.parse(saved);
           useAppStore.getState().updateTimeTracking(progress.totalSeconds, progress.currentStage);
+        } else {
+          useAppStore.getState().updateTimeTracking(
+            DEFAULT_USER_PROGRESS.totalSeconds,
+            DEFAULT_USER_PROGRESS.currentStage
+          );
         }
       } catch (error) {
         console.error('Error loading initial time data:', error);
+        useAppStore.getState().updateTimeTracking(
+          DEFAULT_USER_PROGRESS.totalSeconds,
+          DEFAULT_USER_PROGRESS.currentStage
+        );
       } finally {
         setLoading(false);
       }
     };
 
     loadInitialData();
-  }, []);
+  }, [userId]);
 
   const getCurrentStage = () => {
-    // Use the currentStage from global state directly
-    return STAGES.find(stage => stage.name === currentStage) || STAGES[0];
+    return TIME_TRACKING_STAGES.find(stage => stage.name === currentStage) || TIME_TRACKING_STAGES[0];
   };
 
   const getNextStage = () => {
     const current = getCurrentStage();
-    const currentIndex = STAGES.findIndex(s => s.name === current.name);
-    return STAGES[currentIndex + 1] || null;
+    const currentIndex = TIME_TRACKING_STAGES.findIndex(s => s.name === current.name);
+    return TIME_TRACKING_STAGES[currentIndex + 1] || null;
   };
 
   const getProgressToNextStage = () => {
@@ -84,7 +81,7 @@ export function useTimeTracker() {
       lastUpdated: new Date().toISOString()
     },
     loading,
-    stages: STAGES,
+    stages: TIME_TRACKING_STAGES,
     currentStage: currentStageObj,
     nextStage: nextStageObj,
     progressPercent,

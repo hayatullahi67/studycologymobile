@@ -26,7 +26,15 @@ export function AddCompetitionView({ competitionId, onBack, onSave }: AddCompeti
 
     const [showPicker, setShowPicker] = useState<{ mode: 'date' | 'time', target: 'start' | 'end' } | null>(null);
 
-    const [quiz, setQuiz] = useState<any[]>([]);
+    const defaultQuizQuestion = () => ({
+        id: Date.now().toString(),
+        question: '',
+        options: ['', '', '', ''],
+        correctAnswer: 'A',
+        explanation: ''
+    });
+
+    const [quiz, setQuiz] = useState<any[]>([defaultQuizQuestion()]);
 
     useEffect(() => {
         loadData();
@@ -43,7 +51,7 @@ export function AddCompetitionView({ competitionId, onBack, onSave }: AddCompeti
                     setDescription(comp.description || '');
                     setStartDate(new Date(comp.start_time));
                     setEndDate(new Date(comp.end_time));
-                    setQuiz(comp.quiz || []);
+                    setQuiz((comp.quiz && comp.quiz.length > 0) ? comp.quiz : [defaultQuizQuestion()]);
                 }
             }
         } catch (error) {
@@ -119,6 +127,9 @@ export function AddCompetitionView({ competitionId, onBack, onSave }: AddCompeti
     };
 
     const removeQuizQuestion = (index: number) => {
+        if (quiz.length <= 1) {
+            return;
+        }
         setQuiz(quiz.filter((_, i) => i !== index));
     };
 
@@ -167,15 +178,17 @@ export function AddCompetitionView({ competitionId, onBack, onSave }: AddCompeti
             </View>
 
             <KeyboardAvoidingView
-                style={{ flex: 1 }}
+                style={{ flex: 1, minHeight: 0 }}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 120}
             >
                 <ScrollView
                     contentContainerStyle={styles.content}
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
+                    stickyHeaderIndices={[1]}
                 >
+                    {/* Index 0 — form card (scrolls away) */}
                     <View style={[styles.formCard, { backgroundColor: '#FFFFFF', borderColor: '#D7CCC8' }]}>
                         <View style={styles.section}>
                             <Text style={[styles.label, { color: '#864b03' }]}>CHALLENGE TITLE</Text>
@@ -240,16 +253,17 @@ export function AddCompetitionView({ competitionId, onBack, onSave }: AddCompeti
                         </View>
                     </View>
 
-                    {/* Inline Quiz Builder Section */}
-                    <View style={[styles.quizSection, { backgroundColor: '#FFFFFF', borderColor: '#D7CCC8' }]}>
-                        <View style={styles.quizHeader}>
-                            <Text style={[styles.sectionTitle, { color: '#000000' }]}>Questions ({quiz.length})</Text>
-                            <TouchableOpacity onPress={addQuizQuestion} style={styles.addBtn}>
-                                <Ionicons name="add-circle" size={24} color="#4E342E" />
-                                <Text style={[styles.addBtnText, { color: '#4E342E' }]}>Add Question</Text>
-                            </TouchableOpacity>
-                        </View>
+                    {/* Index 1 — sticky quiz header bar */}
+                    <View style={styles.stickyQuizHeader}>
+                        <Text style={[styles.sectionTitle, { color: '#000000' }]}>Questions ({quiz.length})</Text>
+                        <TouchableOpacity onPress={addQuizQuestion} style={styles.addBtn}>
+                            <Ionicons name="add-circle" size={24} color="#4E342E" />
+                            <Text style={[styles.addBtnText, { color: '#4E342E' }]}>Add Question</Text>
+                        </TouchableOpacity>
+                    </View>
 
+                    {/* Index 2 — quiz questions body (scrolls normally) */}
+                    <View style={[styles.quizSection, { backgroundColor: '#FFFFFF', borderColor: '#D7CCC8' }]}>
                         {quiz.map((q, qIndex) => (
                             <View key={q.id} style={[styles.questionCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
                                 <View style={styles.qHeader}>
@@ -310,7 +324,7 @@ export function AddCompetitionView({ competitionId, onBack, onSave }: AddCompeti
                         )}
                     </View>
 
-                    <View style={{ height: 40 }} />
+                    <View style={{ height: 120 }} />
                 </ScrollView>
             </KeyboardAvoidingView>
 
@@ -352,7 +366,9 @@ const styles = StyleSheet.create({
     },
     saveBtnText: { color: '#FFFFFF', fontWeight: '900', fontSize: 14 },
     content: {
-        padding: 16,
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 140,
         maxWidth: 750,
         alignSelf: 'center',
         width: '100%'
@@ -366,10 +382,21 @@ const styles = StyleSheet.create({
     pickerBtn: { flex: 1, height: 56, borderRadius: 16, borderWidth: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 10, borderColor: '#D7CCC8' },
     pickerText: { fontSize: 15, fontWeight: '700' },
 
+    stickyQuizHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: '#FFF8F6',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        // borderTopWidth: 1,
+        // borderBottomWidth: 1,
+        // borderColor: '#D7CCC8',
+        gap:30,
+    },
     quizSection: { padding: 20, borderRadius: 24, borderWidth: 1, backgroundColor: '#FFFFFF', borderColor: '#D7CCC8' },
-    quizHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    sectionTitle: { fontSize: 18, fontWeight: '900' },
-    addBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    sectionTitle: { fontSize: 18, fontWeight: '900', flex: 1 },
+    addBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 , marginTop:20, },
     addBtnText: { fontWeight: '800', fontSize: 14 },
     questionCard: { padding: 16, borderRadius: 20, borderWidth: 1, marginBottom: 16, backgroundColor: '#FFF8F6', borderColor: '#D7CCC8' },
     qHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppNavigationProp } from '../navigation/types';
 import { useAppStore } from '../store/useAppStore';
@@ -12,6 +12,14 @@ import * as localDB from '../services/localDatabase';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 
+const normalizeExamName = (exam: string): string => {
+    const normalized = exam?.toUpperCase().trim() || '';
+    if (normalized.includes('WAEC')) return 'WAEC';
+    if (normalized.includes('JAMB')) return 'JAMB';
+    if (normalized.includes('POST') || normalized.includes('UTME')) return 'POST UTME';
+    return normalized;
+};
+
 export function PastQuestionsScreen() {
     const navigation = useNavigation<AppNavigationProp>();
     const { theme } = useAppStore();
@@ -22,6 +30,7 @@ export function PastQuestionsScreen() {
     const [loading, setLoading] = useState(true);
     const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
     const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
+    const [selectedExam, setSelectedExam] = useState('WAEC');
 
     useEffect(() => {
         loadPapers();
@@ -81,7 +90,7 @@ export function PastQuestionsScreen() {
                 id: pdf.id.toString(), // Ensure string ID for filename compatibility
                 subject_id: pdf.subject_id,
                 name: pdf.subject,
-                exam_name: pdf.exam,
+                exam_name: normalizeExamName(pdf.exam),
                 exam_year: pdf.year,
                 pdfUrl: pdf.file_url,
                 question_count: pdf.question_count || 0
@@ -94,7 +103,8 @@ export function PastQuestionsScreen() {
         }
     };
 
-    const uniqueSubjectNames = Array.from(new Set(papers.map(p => p.name)))
+    const filteredPapers = papers.filter(p => p.exam_name === selectedExam);
+    const uniqueSubjectNames = Array.from(new Set(filteredPapers.map(p => p.name)))
         .filter((name): name is string => !!name)
         .filter(name => name.toLowerCase().includes(search.toLowerCase()))
         .sort();
@@ -129,11 +139,23 @@ export function PastQuestionsScreen() {
                     />
                 </View>
 
+                <View style={styles.tabContainer}>
+                    {['WAEC', 'JAMB', 'POST UTME'].map((exam) => (
+                        <TouchableOpacity
+                            key={exam}
+                            style={[styles.tabBtn, selectedExam === exam && styles.activeTab]}
+                            onPress={() => setSelectedExam(exam)}
+                        >
+                            <Text style={[styles.tabText, selectedExam === exam && styles.activeTabText]}>{exam}</Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+
                 <Text style={styles.sectionLabel}>PQ LIBRARY</Text>
 
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
                     {uniqueSubjectNames.map((subjectName, index) => {
-                        const subjectPdfs = papers.filter(p => p.name === subjectName);
+                        const subjectPdfs = filteredPapers.filter(p => p.name === subjectName);
                         return (
                             <React.Fragment key={subjectName}>
                                 <SubjectCard
@@ -202,5 +224,10 @@ const styles = StyleSheet.create({
     sectionLabel: { fontSize: 10, fontWeight: '900', color: '#8D6E63', letterSpacing: 1, marginHorizontal: 16, marginBottom: 12 },
     listContent: { paddingHorizontal: 16, paddingBottom: 30 },
     empty: { marginTop: 40, alignItems: 'center', gap: 12 },
-    emptyText: { color: '#8D6E63', fontWeight: '700' }
+    emptyText: { color: '#8D6E63', fontWeight: '700' },
+    tabContainer: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 8 },
+    tabBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, marginHorizontal: 2 },
+    activeTab: { backgroundColor: '#864b03' },
+    tabText: { fontSize: 13, fontWeight: '800', color: '#64748B' },
+    activeTabText: { color: '#FFFFFF' }
 });

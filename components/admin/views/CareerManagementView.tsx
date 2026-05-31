@@ -14,9 +14,10 @@ interface Course {
 interface CareerManagementViewProps {
     onAddCourse: (deptId: string) => void;
     onEditCourse: (courseId: string) => void;
+    onBack?: () => void;
 }
 
-export function CareerManagementView({ onAddCourse, onEditCourse }: CareerManagementViewProps) {
+export function CareerManagementView({ onAddCourse, onEditCourse, onBack }: CareerManagementViewProps) {
     const [selectedDept, setSelectedDept] = useState('sci');
     const [courses, setCourses] = useState<Course[]>([]);
     const [loading, setLoading] = useState(true);
@@ -69,6 +70,11 @@ export function CareerManagementView({ onAddCourse, onEditCourse }: CareerManage
     return (
         <View style={styles.container}>
             <View style={styles.header}>
+                {onBack ? (
+                    <TouchableOpacity style={styles.backBtn} onPress={onBack}>
+                        <Ionicons name="arrow-back" size={22} color="#1E293B" />
+                    </TouchableOpacity>
+                ) : null}
                 <Text style={styles.title}>Career & Inst.</Text>
                 <TouchableOpacity
                     style={styles.addButton}
@@ -213,6 +219,7 @@ const styles = StyleSheet.create({
         alignItems: 'center'
     },
     deleteBtn: { backgroundColor: '#FFEBEE' },
+    backBtn: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 200 },
     emptyText: { color: '#64748B', marginTop: 12, fontSize: 13, fontWeight: '700' }
 });

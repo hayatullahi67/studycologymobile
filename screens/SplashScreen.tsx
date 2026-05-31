@@ -41,7 +41,7 @@ export function SplashScreen() {
               const freshProfile = await signInUser(userProfile.email, userProfile.password);
 
               // Only update store if we're still on this screen (though replace will handle it)
-              setUserProfile(freshProfile);
+              setUserProfile({ ...freshProfile, password: userProfile.password });
 
               await saveUserLocal({
                 id: freshProfile.id,
@@ -49,7 +49,18 @@ export function SplashScreen() {
                 password: userProfile.password,
                 name: freshProfile.name,
                 role: freshProfile.role,
-                created_at: freshProfile.created_at
+                is_paid: freshProfile.is_paid ? 1 : 0,
+                expiry_date: freshProfile.expiry_date,
+                created_at: freshProfile.created_at,
+                active_premium_device_id: freshProfile.active_premium_device_id,
+                active_premium_device_name: freshProfile.active_premium_device_name,
+                current_device_id: freshProfile.current_device_id,
+                current_device_name: freshProfile.current_device_name,
+                current_device_has_premium: freshProfile.current_device_has_premium ? 1 : 0,
+                premium_revoked_permanently: freshProfile.premium_revoked_permanently ? 1 : 0,
+                device_access_state: freshProfile.device_access_state,
+                premium_checked_at: freshProfile.premium_checked_at,
+                premium_offline_valid_until: freshProfile.premium_offline_valid_until,
               });
               targetRoute = freshProfile.role === 'admin' ? 'AdminDashboard' : 'MainTabs';
             } catch (authError) {
@@ -92,7 +103,7 @@ export function SplashScreen() {
             tintColor={PRIMARY_BROWN}
           />
           {/* <Text style={styles.brandTitle}>STUDYCOLOGY</Text> */}
-          <Text style={styles.brandTitle}>2026</Text>
+          <Text style={styles.brandTitle}>2027</Text>
         </View>
 
         <View style={styles.footer}>

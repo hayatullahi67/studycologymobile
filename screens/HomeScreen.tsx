@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, Linking, Modal, ActivityIndicator, AppState } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { supabase } from '../services/supabaseDatabase';
+import { supabase, signInUser } from '../services/supabaseDatabase';
 import { useNavigation } from '@react-navigation/native';
 import { AppNavigationProp } from '../navigation/types';
 import { useAppStore } from '../store/useAppStore';
@@ -11,13 +11,13 @@ import { ExamMode } from '../types';
 import { COLORS, ThemeColors } from '../theme/colors';
 import { AdCarousel } from '../components/AdCarousel';
 import * as localDB from '../services/localDatabase';
+import { getDeviceIdentity } from '../services/deviceIdentity';
+import { isPremiumActiveOnCurrentDevice } from '../services/premiumAccess';
 
 export function HomeScreen() {
   const { results, isDataDownloaded, syncStatus, startSync, theme, fontSize, userProfile, setUserProfile } = useAppStore();
   const navigation = useNavigation<AppNavigationProp>();
-  const isPaid = (userProfile?.is_paid === true || userProfile?.is_paid === 1)
-    && !!userProfile?.expiry_date
-    && new Date(userProfile.expiry_date) > new Date();
+  const isPaid = isPremiumActiveOnCurrentDevice(userProfile);
 
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -47,6 +47,7 @@ export function HomeScreen() {
       if (nextAppState === 'active') {
         checkPendingPayment();
         fetchReferralBalance();
+        refreshProfileAccess();
       }
     });
 
@@ -76,6 +77,38 @@ export function HomeScreen() {
       }
     } catch (e) {
       console.error('[Referral] Failed to fetch referral balance:', e);
+    }
+  };
+
+  const persistProfile = async (profile: any) => {
+    if (!profile?.email) return;
+    const cachedUser = await localDB.getCurrentUser() as { password?: string } | null;
+
+    await localDB.saveUserLocal({
+      ...profile,
+      password: userProfile?.password || cachedUser?.password || '',
+      is_paid: profile.is_paid ? 1 : 0,
+      current_device_has_premium: profile.current_device_has_premium ? 1 : 0,
+      premium_revoked_permanently: profile.premium_revoked_permanently ? 1 : 0,
+    });
+  };
+
+  const refreshProfileAccess = async () => {
+    try {
+      const currentProfile = useAppStore.getState().userProfile;
+      if (!currentProfile?.email || !currentProfile?.password) return;
+
+      const refreshedProfile = await signInUser(currentProfile.email, currentProfile.password);
+      setUserProfile({ ...refreshedProfile, password: currentProfile.password });
+      await localDB.saveUserLocal({
+        ...refreshedProfile,
+        password: currentProfile.password,
+        is_paid: refreshedProfile.is_paid ? 1 : 0,
+        current_device_has_premium: refreshedProfile.current_device_has_premium ? 1 : 0,
+        premium_revoked_permanently: refreshedProfile.premium_revoked_permanently ? 1 : 0,
+      });
+    } catch (error) {
+      console.warn('[Access] Failed to refresh device access:', error);
     }
   };
 
@@ -139,12 +172,17 @@ export function HomeScreen() {
     try {
       setLoading(true);
       setIsAbandoned(false); // Reset abandoned state for a fresh attempt
+      const device = await getDeviceIdentity();
 
       const { data, error } = await supabase.functions.invoke('paystack-init', {
         body: {
           email: userProfile.email,
           amount: 1500,
-          metadata: { user_id: userProfile.id }
+          metadata: {
+            user_id: userProfile.id,
+            device_id: device.deviceId,
+            device_name: device.deviceName,
+          }
         }
       });
 
@@ -209,15 +247,24 @@ export function HomeScreen() {
 
       // Definitive Success
       if (data.success) {
-        const freshProfile = { ...userProfile, is_paid: true, expiry_date: data.expiry_date };
+        const freshProfile = {
+          ...userProfile,
+          is_paid: true,
+          expiry_date: data.expiry_date,
+          active_premium_device_id: data.active_premium_device_id || userProfile?.active_premium_device_id,
+          active_premium_device_name: data.active_premium_device_name || userProfile?.current_device_name,
+          current_device_id: data.current_device_id || userProfile?.current_device_id,
+          current_device_name: data.current_device_name || userProfile?.current_device_name,
+          current_device_has_premium: true,
+          premium_revoked_permanently: false,
+          device_access_state: 'active',
+          premium_checked_at: new Date().toISOString(),
+          premium_offline_valid_until: data.premium_offline_valid_until || userProfile?.premium_offline_valid_until,
+        };
         setUserProfile(freshProfile);
 
         try {
-          await localDB.saveUserLocal({
-            ...freshProfile,
-            password: userProfile?.password || '',
-            is_paid: 1
-          });
+          await persistProfile(freshProfile);
           await localDB.saveSetting('pending_paystack_ref', '');
           setPendingRef(null);
           setReference(null);
@@ -487,7 +534,7 @@ export function HomeScreen() {
             <View style={[styles.cardIconBox, { backgroundColor: 'rgba(255, 255, 255, 0.2)' }]}>
               <Ionicons name="trophy-outline" size={20} color="#FFFFFF" />
             </View>
-            <Text style={styles.cardTitle}>UTME Comp.</Text>
+            <Text style={styles.cardTitle}>Exam Chall.</Text>
             <Text style={[styles.cardSubtitle, { color: 'rgba(255,255,255,0.8)' }]}>CHALLENGE</Text>
           </TouchableOpacity>
         </View>

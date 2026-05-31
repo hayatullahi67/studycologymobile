@@ -7,10 +7,12 @@ import { ThemeColors } from '../../theme/colors';
 interface AdminSidebarProps {
     activeItem?: string;
     onNavigate: (item: string) => void;
+    allowedItems?: string[];
 }
 
 const MENU_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
+    { id: 'users', label: 'Users', icon: 'people-circle' },
     { id: 'library', label: 'Question Bank', icon: 'library' },
     { id: 'upload_pq', label: 'Upload PDFs', icon: 'cloud-upload' },
     { id: 'manual_entry', label: 'Manual Add', icon: 'create' },
@@ -21,17 +23,23 @@ const MENU_ITEMS = [
     { id: 'career_inst', label: 'Career & Inst', icon: 'school' },
     { id: 'competitions', label: 'Competitions', icon: 'trophy' },
     { id: 'referrals', label: 'Referrals', icon: 'people' },
+    { id: 'admin_registration', label: 'Admin Registration', icon: 'person-add' },
 ];
 
-export function AdminSidebar({ activeItem = 'dashboard', onNavigate }: AdminSidebarProps) {
-    const { theme } = useAppStore();
+// export function AdminSidebar({ activeItem = 'dashboard', onNavigate }: AdminSidebarProps) {
+export function AdminSidebar({ activeItem = 'dashboard', onNavigate, allowedItems }: AdminSidebarProps) {
+const { theme } = useAppStore();
     // const isDark = theme === 'dark';
     const colors = ThemeColors.light; // Force light mode for consistency
+
+    const visibleMenuItems = allowedItems && allowedItems.length > 0
+        ? MENU_ITEMS.filter((item) => allowedItems.includes(item.id))
+        : MENU_ITEMS;
 
     return (
         <View style={[styles.container, { backgroundColor: '#FFFFFF', borderBottomColor: '#EFEBE9' }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-                {MENU_ITEMS.map((item) => {
+                {visibleMenuItems && visibleMenuItems.length > 0 ? visibleMenuItems.map((item) => {
                     const isActive = activeItem === item.id;
                     return (
                         <TouchableOpacity
@@ -57,7 +65,7 @@ export function AdminSidebar({ activeItem = 'dashboard', onNavigate }: AdminSide
                             </Text>
                         </TouchableOpacity>
                     )
-                })}
+                }) : null}
             </ScrollView>
         </View>
     );

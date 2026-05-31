@@ -10,9 +10,10 @@ interface CompetitionManagementViewProps {
     onAdd: () => void;
     onEdit: (id: string) => void;
     onViewLive: (id: string) => void;
+    onBack?: () => void;
 }
 
-export function CompetitionManagementView({ onAdd, onEdit, onViewLive }: CompetitionManagementViewProps) {
+export function CompetitionManagementView({ onAdd, onEdit, onViewLive, onBack }: CompetitionManagementViewProps) {
     const { theme } = useAppStore();
     const isDark = theme === 'dark';
     const colors = isDark ? ThemeColors.dark : ThemeColors.light;
@@ -102,8 +103,15 @@ export function CompetitionManagementView({ onAdd, onEdit, onViewLive }: Competi
             <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.surface} />
 
             <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#EFEBE9' }]}>
-                <View>
-                    <Text style={[styles.headerTitle, { color: '#000000' }]}>UTME Challenges</Text>
+                {onBack ? (
+                    <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+                        <Ionicons name="arrow-back" size={22} color="#4E342E" />
+                    </TouchableOpacity>
+                ) : (
+                    <View style={{ width: 44 }} />
+                )}
+                <View style={{ flex: 1, paddingHorizontal: 12 }}>
+                    <Text style={[styles.headerTitle, { color: '#000000' }]}>Exam Challenges</Text>
                     <Text style={[styles.headerSub, { color: '#64748B' }]}>Manage live proctored events</Text>
                 </View>
                 <TouchableOpacity
@@ -233,6 +241,7 @@ const styles = StyleSheet.create({
     headerTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5, color: '#000000' },
     headerSub: { fontSize: 13, marginTop: 2, fontWeight: '600', color: '#64748B' },
     addBtn: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', elevation: 4 },
+    backBtn: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
     listContent: {
         paddingHorizontal: 16,
         paddingVertical: 20,

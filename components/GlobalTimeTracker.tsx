@@ -2,27 +2,19 @@ import React, { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import * as localDB from '../services/localDatabase';
 import { useAppStore } from '../store/useAppStore';
-
-interface UserProgress {
-  totalSeconds: number;
-  currentStage: string;
-  stageStartTime: number;
-  lastUpdated: string;
-}
-
-const STAGES = [
-  { name: 'Greenhorn', minHours: 0, maxHours: 2, color: '#8B5CF6' },
-  { name: 'Learner', minHours: 2, maxHours: 7, color: '#3B82F6' },
-  { name: 'Reader', minHours: 7, maxHours: 22, color: '#10B981' },
-  { name: 'Ace', minHours: 22, maxHours: 47, color: '#F59E0B' },
-  { name: 'Genius', minHours: 47, maxHours: 82, color: '#EF4444' },
-  { name: 'Maverick', minHours: 82, maxHours: 117, color: '#EC4899' },
-  { name: 'Titan', minHours: 117, maxHours: Infinity, color: '#7C3AED' },
-];
+import {
+  DEFAULT_USER_PROGRESS,
+  UserProgress,
+  getStageForTotalSeconds,
+  getUserProgressStorageKey,
+} from '../services/timeTracking';
 
 export function GlobalTimeTracker() {
   const startTimeRef = useRef<number | null>(null);
-  const { updateTimeTracking } = useAppStore();
+  const previousStorageKeyRef = useRef<string | null>(null);
+  const activeStorageKeyRef = useRef<string>(getUserProgressStorageKey(null));
+  const { updateTimeTracking, userProfile } = useAppStore();
+  const storageKey = getUserProgressStorageKey(userProfile?.id ?? null);
 
   useEffect(() => {
     // Start tracking immediately when component mounts
@@ -34,35 +26,43 @@ export function GlobalTimeTracker() {
       subscription.remove();
       // Save any remaining time when component unmounts
       if (startTimeRef.current) {
-        saveSessionTime(Date.now() - startTimeRef.current);
+        saveSessionTime(Date.now() - startTimeRef.current, activeStorageKeyRef.current);
       }
     };
   }, []);
 
-  const saveSessionTime = async (sessionMs: number) => {
+  useEffect(() => {
+    const previousStorageKey = previousStorageKeyRef.current;
+
+    const switchTrackedUser = async () => {
+      if (previousStorageKey && previousStorageKey !== storageKey && startTimeRef.current) {
+        const sessionMs = Date.now() - startTimeRef.current;
+        await saveSessionTime(sessionMs, previousStorageKey);
+      }
+
+      previousStorageKeyRef.current = storageKey;
+      activeStorageKeyRef.current = storageKey;
+      startTimeRef.current = Date.now();
+    };
+
+    switchTrackedUser();
+  }, [storageKey]);
+
+  const saveSessionTime = async (sessionMs: number, keyOverride?: string) => {
     try {
       const sessionSeconds = Math.floor(sessionMs / 1000);
       if (sessionSeconds < 1) return; // Don't save sessions shorter than 1 second
 
-      const saved = await localDB.getSetting('user_progress');
-      let progress: UserProgress = {
-        totalSeconds: 0,
-        currentStage: 'Greenhorn',
-        stageStartTime: 0,
-        lastUpdated: new Date().toISOString()
-      };
+      const progressKey = keyOverride || storageKey;
+      const saved = await localDB.getSetting(progressKey);
+      let progress: UserProgress = { ...DEFAULT_USER_PROGRESS };
 
       if (saved) {
         progress = JSON.parse(saved);
       }
 
       const newTotalSeconds = progress.totalSeconds + sessionSeconds;
-
-      // Calculate current stage
-      const totalHours = newTotalSeconds / 3600;
-      const currentStage = STAGES.find(stage =>
-        totalHours >= stage.minHours && totalHours < stage.maxHours
-      ) || STAGES[STAGES.length - 1];
+      const currentStage = getStageForTotalSeconds(newTotalSeconds);
 
       const updatedProgress: UserProgress = {
         ...progress,
@@ -71,11 +71,12 @@ export function GlobalTimeTracker() {
         lastUpdated: new Date().toISOString()
       };
 
-      await localDB.saveSetting('user_progress', JSON.stringify(updatedProgress));
+      await localDB.saveSetting(progressKey, JSON.stringify(updatedProgress));
 
-      // Update global state immediately
-      updateTimeTracking(newTotalSeconds, currentStage.name);
-      console.log('[TimeTracker] Updated global state:', { totalSeconds: newTotalSeconds, stage: currentStage.name });
+      if (progressKey === storageKey) {
+        updateTimeTracking(newTotalSeconds, currentStage.name);
+        console.log('[TimeTracker] Updated global state:', { totalSeconds: newTotalSeconds, stage: currentStage.name, storageKey: progressKey });
+      }
     } catch (error) {
       console.error('Error saving session time:', error);
     }
@@ -89,7 +90,7 @@ export function GlobalTimeTracker() {
       // App went to background
       if (startTimeRef.current) {
         const sessionMs = Date.now() - startTimeRef.current;
-        saveSessionTime(sessionMs);
+        saveSessionTime(sessionMs, activeStorageKeyRef.current);
         startTimeRef.current = null;
       }
     }

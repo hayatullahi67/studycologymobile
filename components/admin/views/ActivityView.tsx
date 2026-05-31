@@ -6,6 +6,10 @@ import * as supabaseDB from '../../../services/supabaseDatabase';
 import { useAppStore } from '../../../store/useAppStore';
 import { ThemeColors, COLORS } from '../../../theme/colors';
 
+interface ActivityViewProps {
+    onBack?: () => void;
+}
+
 interface Activity {
     id: string;
     text: string;
@@ -18,7 +22,7 @@ interface Activity {
     rawTime: string; // Used for sorting
 }
 
-export function ActivityView() {
+export function ActivityView({ onBack }: ActivityViewProps) {
     const { theme } = useAppStore();
     // const isDark = theme === 'dark';
     const colors = ThemeColors.light; // Force light mode for theme consistency
@@ -92,7 +96,14 @@ export function ActivityView() {
             <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
             <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#EFEBE9' }]}>
-                <View>
+                {onBack ? (
+                    <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+                        <Ionicons name="arrow-back" size={22} color="#4E342E" />
+                    </TouchableOpacity>
+                ) : (
+                    <View style={{ width: 44 }} />
+                )}
+                <View style={{ flex: 1, paddingHorizontal: 12 }}>
                     <Text style={[styles.headerTitle, { color: '#000000' }]}>Audit Log</Text>
                     <Text style={[styles.headerSub, { color: '#64748B' }]}>Historical record of changes</Text>
                 </View>
@@ -233,6 +244,7 @@ const styles = StyleSheet.create({
     headerTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
     headerSub: { fontSize: 13, marginTop: 2, fontWeight: '600' },
     refreshBtn: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+    backBtn: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
     filterContainer: { paddingHorizontal: 20, paddingVertical: 16 },
     filterBar: { flexDirection: 'row', borderRadius: 16, padding: 6 },
     filterTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 12 },

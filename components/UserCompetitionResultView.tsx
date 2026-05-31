@@ -65,6 +65,8 @@ export function UserCompetitionResultView({ competitionId, onBack }: UserCompeti
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
 
+    const totalQuestions = competition?.quiz?.length || 0;
+
     const renderItem = ({ item, index }: { item: any, index: number }) => {
         const isMe = userProfile?.id && item.user_id === userProfile.id; // Assuming user_id is in result or registration
         // Note: supabaseDatabase.getCompetitionResults usually joins with registration. 
@@ -94,7 +96,7 @@ export function UserCompetitionResultView({ competitionId, onBack }: UserCompeti
                 </View>
 
                 <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={[styles.scoreText, { color: index === 0 ? '#D97706' : colors.primary }]}>{item.score}</Text>
+                    <Text style={[styles.scoreText, { color: index === 0 ? '#D97706' : colors.primary }]}>{`${item.score}/${totalQuestions}`}</Text>
                     <View style={styles.timeContainer}>
                         <Ionicons name="time-outline" size={10} color={colors.textSecondary} style={{ marginRight: 2 }} />
                         <Text style={[styles.timeText, { color: colors.textSecondary }]}>{formatTime(item.time_taken)}</Text>

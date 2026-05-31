@@ -110,12 +110,14 @@ export function UtmeCompetitionExamScreen() {
             // Calculate score
             let correct = 0;
             questions.forEach(q => {
-                if (answers[q.id] === q.correct_answer) {
+                const userAnswer = answers[q.id]?.toString().toLowerCase();
+                const correctAnswer = (q.correct_answer || q.correctAnswer || '').toString().toLowerCase();
+                if (userAnswer && correctAnswer && userAnswer === correctAnswer) {
                     correct++;
                 }
             });
 
-            const score = questions.length > 0 ? (correct / questions.length) * 400 : 0; // Standard UTME scaling to 400
+            const score = correct;
 
             const now = new Date().getTime();
             const start = new Date(competition.start_time).getTime();
@@ -148,49 +150,49 @@ export function UtmeCompetitionExamScreen() {
     };
 
     const currentQuestion = questions[currentIndex];
-    const options = currentQuestion ? [
-        { id: 'a', text: currentQuestion.option_a },
-        { id: 'b', text: currentQuestion.option_b },
-        { id: 'c', text: currentQuestion.option_c },
-        { id: 'd', text: currentQuestion.option_d },
+    const options = currentQuestion && currentQuestion.options ? [
+        { id: 'A', text: currentQuestion.options[0] },
+        { id: 'B', text: currentQuestion.options[1] },
+        { id: 'C', text: currentQuestion.options[2] },
+        { id: 'D', text: currentQuestion.options[3] },
     ] : [];
 
     if (loading) {
         return (
             <View style={[styles.center, { backgroundColor: colors.background }]}>
-                <ActivityIndicator size="large" color={colors.primary} />
+                <ActivityIndicator size="large" color={COLORS.primary[600]} />
                 <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Sychronizing Race Content...</Text>
             </View>
         );
     }
 
     return (
-        <Screen scrollable={false} style={{ backgroundColor: isDark ? '#101920' : colors.background }}>
+        <Screen scrollable={false} style={{ backgroundColor: colors.background }}>
             {/* Header */}
-            <View style={[styles.header, { borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border }]}>
+            <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <Ionicons name="arrow-back" size={24} color={isDark ? '#FFFFFF' : colors.text} />
+                    <Ionicons name="arrow-back" size={24} color="#000000" />
                 </TouchableOpacity>
 
                 <View style={styles.headerCenter}>
-                    <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : colors.text }]}>LIVE RACE</Text>
+                    <Text style={[styles.headerTitle, { color: COLORS.primary[600] }]}>LIVE RACE</Text>
                 </View>
 
                 <View style={styles.headerRight}>
                     <TouchableOpacity style={styles.headerIconBtn}>
-                        <Ionicons name="calculator-outline" size={22} color={isDark ? '#FFFFFF' : colors.text} />
+                        <Ionicons name="calculator-outline" size={22} color="#000000" />
                     </TouchableOpacity>
                 </View>
             </View>
 
             {/* Info Bar */}
-            <View style={[styles.infoBar, { borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border }]}>
+            <View style={[styles.infoBar, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
                 <View style={styles.timerRow}>
-                    <View style={[styles.timerBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F8FAFC' }]}>
-                        <Ionicons name="time-outline" size={14} color={COLORS.rose[500]} />
-                        <Text style={[styles.timerText, { color: COLORS.rose[500] }]}>{formatTime(timeLeft)}</Text>
+                    <View style={[styles.timerBadge, { backgroundColor: '#F8FAFC' }]}>
+                        <Ionicons name="time-outline" size={14} color={COLORS.primary[600]} />
+                        <Text style={[styles.timerText, { color: COLORS.primary[600] }]}>{formatTime(timeLeft)}</Text>
                     </View>
-                    <Text style={[styles.qProgress, { color: isDark ? '#94A3B8' : '#64748B' }]}>
+                    <Text style={[styles.qProgress, { color: colors.textSecondary }]}>
                         {currentIndex + 1} of {questions.length}
                     </Text>
                 </View>
@@ -207,11 +209,11 @@ export function UtmeCompetitionExamScreen() {
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-                <View style={[styles.instructionCard, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC' }]}>
+<View style={[styles.instructionCard, { backgroundColor: COLORS.primary[50] }]}> 
                     <Text style={[styles.instructionText, { color: COLORS.primary[600] }]}>COMPETITION QUESTION</Text>
                 </View>
 
-                <Text style={[styles.questionText, { color: isDark ? '#F1F5F9' : colors.text }]}>{currentQuestion?.question}</Text>
+                <Text style={[styles.questionText, { color: '#000000' }]}>{currentQuestion?.question}</Text>
 
                 {/* Ad Position: Above Options */}
                 {adConfig.shouldShowAd && adPosition === 'above' && (
@@ -234,19 +236,19 @@ export function UtmeCompetitionExamScreen() {
                                     onPress={() => setAnswers(prev => ({ ...prev, [currentQuestion.id]: opt.id }))}
                                     style={[
                                         styles.optionItem,
-                                        { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF', borderColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9' },
+                                        { backgroundColor: colors.surface, borderColor: colors.border },
                                         isSelected && { borderColor: COLORS.primary[600], backgroundColor: COLORS.primary[600] + '10' }
                                     ]}
                                 >
                                     <View style={[
                                         styles.optionLetterBox,
-                                        { backgroundColor: isSelected ? COLORS.primary[600] : (isDark ? 'rgba(255,255,255,0.1)' : '#F1F5F9') }
+                                        { backgroundColor: isSelected ? COLORS.primary[600] : colors.iconBg }
                                     ]}>
-                                        <Text style={[styles.optionLetter, { color: isSelected ? '#FFFFFF' : (isDark ? '#F1F5F9' : '#0F172A') }]}>
+                                        <Text style={[styles.optionLetter, { color: isSelected ? '#FFFFFF' : '#000000' }]}>
                                             {opt.id.toUpperCase()}
                                         </Text>
                                     </View>
-                                    <Text style={[styles.optionText, { color: isDark ? '#F1F5F9' : colors.text }, isSelected && { fontWeight: '700' }]}>
+                                    <Text style={[styles.optionText, { color: '#000000' }, isSelected && { fontWeight: '700' }]}>
                                         {opt.text}
                                     </Text>
                                     {isSelected && <Ionicons name="checkmark-circle" size={18} color={COLORS.primary[600]} />}
@@ -270,14 +272,14 @@ export function UtmeCompetitionExamScreen() {
             </ScrollView>
 
             {/* Footer Navigation */}
-            <View style={[styles.footer, { backgroundColor: isDark ? '#101920' : colors.background, borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border }]}>
+            <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
                 <View style={styles.navButtons}>
                     <TouchableOpacity
                         onPress={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
                         disabled={currentIndex === 0}
-                        style={[styles.navBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9' }, currentIndex === 0 && { opacity: 0.5 }]}
+                        style={[styles.navBtn, { backgroundColor: '#F1F5F9' }, currentIndex === 0 && { opacity: 0.5 }]}
                     >
-                        <Text style={[styles.navBtnText, { color: isDark ? '#94A3B8' : '#64748B' }]}>Prev</Text>
+                        <Text style={[styles.navBtnText, { color: '#000000' }]}>Prev</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -331,7 +333,7 @@ const styles = StyleSheet.create({
     instructionText: { fontSize: 10, fontWeight: '900', letterSpacing: 1, textAlign: 'center' },
     questionText: { fontSize: 16, fontWeight: '800', lineHeight: 28, marginBottom: 24 },
     optionsList: { gap: 10 },
-    optionItem: { flexDirection: 'row', alignItems: 'center', padding: 10, borderRadius: 12, borderWidth: 1.5 },
+    optionItem: { flexDirection: 'row', alignItems: 'center', padding: 10, borderRadius: 12, borderWidth: 1.5, backgroundColor: '#FFFFFF' },
     optionLetterBox: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     optionLetter: { fontSize: 14, fontWeight: '900' },
     optionText: { flex: 1, fontSize: 14, fontWeight: '600' },

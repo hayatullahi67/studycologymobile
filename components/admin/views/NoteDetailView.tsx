@@ -1,36 +1,79 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import * as supabaseDB from '../../../services/supabaseDatabase';
-import { useAppStore } from '../../../store/useAppStore';
-import { ThemeColors, COLORS } from '../../../theme/colors';
+import { ThemeColors } from '../../../theme/colors';
 
 interface NoteDetailViewProps {
     noteId: string;
+    noteIds?: string[];
     onBack: () => void;
     onEdit?: (noteId: string) => void;
     onDelete?: (noteId: string) => void;
 }
 
-export function NoteDetailView({ noteId, onBack, onEdit, onDelete }: NoteDetailViewProps) {
-    const { theme } = useAppStore();
-    // const isDark = theme === 'dark';
+export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: NoteDetailViewProps) {
     const colors = ThemeColors.light; // Force light mode for theme consistency
     const [note, setNote] = useState<any>(null);
+    const [topicNotes, setTopicNotes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [webViewHeight, setWebViewHeight] = useState(500);
-    const { height: windowHeight } = useWindowDimensions();
+    const [webViewHeights, setWebViewHeights] = useState<Record<string, number>>({});
+    const [showSubtopicContent, setShowSubtopicContent] = useState(false);
+    const noteIdsKey = `${noteId}|${(noteIds && noteIds.length > 0 ? noteIds : [noteId]).join('|')}`;
 
     useEffect(() => {
         loadNote();
-    }, [noteId]);
+    }, [noteIdsKey]);
 
     const loadNote = async () => {
-        setLoading(true);
-        const data = await supabaseDB.getNoteById(noteId);
-        setNote(data);
-        setLoading(false);
+        try {
+            setLoading(true);
+            const idsToLoad = noteIds && noteIds.length > 0 ? noteIds : [noteId];
+            const [selectedNote, loadedNotes] = await Promise.all([
+                supabaseDB.getNoteById(noteId),
+                Promise.all(idsToLoad.map((id) => supabaseDB.getNoteById(id))),
+            ]);
+
+            const cleanNotes = loadedNotes
+                .filter(Boolean)
+                .sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+            const primaryNote = selectedNote || cleanNotes[0] || null;
+
+            setNote(primaryNote);
+            setTopicNotes(cleanNotes.length > 0 ? cleanNotes : primaryNote ? [primaryNote] : []);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSelectSubtopic = async (subtopicId: string) => {
+        if (note?.id === subtopicId && topicNotes.some((item) => item.id === subtopicId)) {
+            setShowSubtopicContent(true);
+            return;
+        }
+
+        const selected = topicNotes.find((item) => item.id === subtopicId);
+        if (selected) {
+            setNote(selected);
+            setShowSubtopicContent(true);
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const freshNote = await supabaseDB.getNoteById(subtopicId);
+            if (freshNote) {
+                setNote(freshNote);
+                setShowSubtopicContent(true);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleBackToSubtopics = () => {
+        setShowSubtopicContent(false);
     };
 
     const handleDelete = async () => {
@@ -67,6 +110,131 @@ export function NoteDetailView({ noteId, onBack, onEdit, onDelete }: NoteDetailV
         );
     }
 
+    const topicTitle = note?.topic || note?.title || 'Topic';
+    const subjectTitle = note?.subject || 'General';
+
+    // const renderContentHtml = (content: string) => `
+    //     <html>
+    //     <head>
+    //         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    //         <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    //         <style>
+    //             body {
+    //                 font-family: -apple-system, system-ui;
+    //                 font-size: 15px;
+    //                 line-height: 1;
+    //                 color: #3E2723;
+    //                 background-color: transparent;
+    //                 margin: 0;
+    //                 padding: 0;
+    //             }
+    //             h1, h2, h3, h4 {
+    //                 color: #864b03;
+    //                 font-weight: 800;
+    //                 margin: 0 0 0.6em;
+    //             }
+    //             .ql-editor {
+    //                 padding: 0 !important;
+    //                 margin: 0 !important;
+    //             }
+    //             .ql-editor p {
+    //                 margin: 0 0 0.75em;
+    //                 line-height: 1.5;
+    //             }
+    //             .ql-editor ul,
+    //             .ql-editor ol {
+    //                 margin: 0 0 0.8em;
+    //                 padding-left: 18px;
+    //             }
+    //             .ql-editor li {
+    //                 margin-bottom: 0.35em;
+    //             }
+    //             img { max-width: 100%; height: auto; border-radius: 8px; }
+    //         </style>
+    //     </head>
+    //     <body class="ql-snow">
+    //         <div class="ql-editor" id="content">
+    //             ${content || ''}
+    //         </div>
+    //         <script>
+    //             function sendHeight() {
+    //                 const height = document.getElementById('content').offsetHeight;
+    //                 window.ReactNativeWebView.postMessage(height);
+    //             }
+    //             window.onload = sendHeight;
+    //             window.addEventListener('resize', sendHeight);
+    //         </script>
+    //     </body>
+    //     </html>
+    // `;
+
+    const renderContentHtml = (content: string) => `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html, body {
+                font-family: -apple-system, system-ui;
+                font-size: 15px;
+                line-height: 1.5;
+                color: #3E2723;
+                background-color: transparent;
+                width: 100%;
+                height: auto;
+                overflow: hidden;
+            }
+            h1, h2, h3, h4 {
+                color: #864b03;
+                font-weight: 800;
+                margin: 0 0 0.6em;
+            }
+            .ql-container.ql-snow { border: none !important; }
+            .ql-editor {
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+                height: auto !important;
+                min-height: unset !important;
+            }
+            .ql-editor p { margin: 0 0 0.75em; line-height: 1.5; }
+            .ql-editor p:last-child { margin-bottom: 0; }
+            .ql-editor ul, .ql-editor ol { margin: 0 0 0.8em; padding-left: 18px; }
+            .ql-editor li { margin-bottom: 0.35em; }
+            img { max-width: 100%; height: auto; border-radius: 8px; }
+        </style>
+    </head>
+    <body class="ql-snow">
+        <div class="ql-editor" id="content">${content || ''}</div>
+        <script>
+            var lastH = 0;
+            var stableCount = 0;
+
+            function pollUntilStable() {
+                var content = document.getElementById('content');
+                var h = Math.max(document.body.scrollHeight, content.scrollHeight, content.offsetHeight);
+                if (h > 0 && h === lastH) {
+                    stableCount++;
+                    if (stableCount >= 3) {
+                        window.ReactNativeWebView.postMessage(String(h));
+                        return;
+                    }
+                } else {
+                    stableCount = 0;
+                    lastH = h;
+                }
+                setTimeout(pollUntilStable, 100);
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                pollUntilStable();
+            });
+        </script>
+    </body>
+    </html>
+`;
     return (
         <View style={[styles.container, { backgroundColor: '#FFF8F6' }]}>
             <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#EFEBE9' }]}>
@@ -74,14 +242,14 @@ export function NoteDetailView({ noteId, onBack, onEdit, onDelete }: NoteDetailV
                     <Ionicons name="arrow-back" size={24} color="#000000" />
                 </TouchableOpacity>
                 <View style={{ flex: 1 }}>
-                    <Text style={[styles.headerTitle, { color: '#000000' }]} numberOfLines={1}>{note.title}</Text>
+                    <Text style={[styles.headerTitle, { color: '#000000' }]} numberOfLines={1}>{topicTitle}</Text>
                     <View style={styles.metaRow}>
                         <View style={[styles.badge, { backgroundColor: '#FFF8F6', borderColor: '#D7CCC8' }]}>
-                            <Text style={[styles.badgeText, { color: '#864b03' }]}>{note.subject || 'General'}</Text>
+                            <Text style={[styles.badgeText, { color: '#864b03' }]}>{subjectTitle}</Text>
                         </View>
-                        {note.topic && (
-                            <Text style={[styles.topicText, { color: colors.textSecondary }]}>{note.topic}</Text>
-                        )}
+                        <Text style={[styles.topicText, { color: colors.textSecondary }]}>
+                            {topicNotes.length} subtopic{topicNotes.length === 1 ? '' : 's'}
+                        </Text>
                     </View>
                 </View>
                 <View style={styles.actions}>
@@ -95,70 +263,71 @@ export function NoteDetailView({ noteId, onBack, onEdit, onDelete }: NoteDetailV
             </View>
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-                <View style={[styles.noteCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <View style={styles.dateRow}>
-                        <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
-                        <Text style={[styles.dateText, { color: colors.textSecondary }]}>
-                            Created on {new Date(note.created_at).toLocaleDateString(undefined, {
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric'
-                            })}
-                        </Text>
-                    </View>
-                    <WebView
-                        originWhitelist={['*']}
-                        source={{
-                            html: `
-                                <html>
-                                <head>
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                                    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-                                    <style>
-                                        body {
-                                            font-family: -apple-system, system-ui;
-                                            font-size: 16px;
-                                            line-height: 1.6;
-                                            color: '#3E2723';
-                                            background-color: transparent;
-                                            margin: 0;
-                                            padding: 0;
-                                        }
-                                        h1, h2, h3, h4 { color: #864b03; font-weight: 800; }
-                                        .ql-editor { padding: 0 !important; }
-                                        .ql-editor p { margin-bottom: 1em; }
-                                    </style>
-                                </head>
-                                <body class="ql-snow">
-                                    <div class="ql-editor" id="content">
-                                        ${note.content}
-                                    </div>
-                                    <script>
-                                        function sendHeight() {
-                                            const height = document.getElementById('content').offsetHeight;
-                                            window.ReactNativeWebView.postMessage(height);
-                                        }
-                                        window.onload = sendHeight;
-                                        window.addEventListener('resize', sendHeight);
-                                    </script>
-                                </body>
-                                </html>
-                            `
-                        }}
-                        onMessage={(event) => {
-                            const newHeight = parseInt(event.nativeEvent.data);
-                            if (newHeight > 0) setWebViewHeight(newHeight + 40);
-                        }}
-                        style={{ height: webViewHeight, backgroundColor: 'transparent' }}
-                        scrollEnabled={false}
-                    />
+                <View style={styles.topicIntro}>
+                    <Text style={styles.topicIntroTitle}>{topicTitle}</Text>
+                    <Text style={styles.topicIntroText}>{subjectTitle} topic content arranged by subtopic.</Text>
                 </View>
 
-                {note.quiz && note.quiz.length > 0 && (
-                    <View style={styles.quizSection}>
-                        <Text style={[styles.sectionTitle, { color: '#000000' }]}>Quiz Questions ({note.quiz.length})</Text>
-                        {note.quiz.map((q: any, idx: number) => (
-                            <View key={idx} style={[styles.qCard, { backgroundColor: '#FFFFFF', borderColor: '#D7CCC8' }]}>
+                {!showSubtopicContent && (
+                    <View style={styles.subtopicList}>
+                        {topicNotes.map((item: any, index: number) => {
+                            const selected = item.id === note?.id;
+                            const subtopicTitle = item.subtopic || item.title || `Subtopic ${index + 1}`;
+                            return (
+                                <TouchableOpacity
+                                    key={item.id}
+                                    style={[styles.subtopicItem, selected && styles.subtopicItemSelected]}
+                                    onPress={() => handleSelectSubtopic(item.id)}
+                                >
+                                    <View style={[styles.subtopicIndex, selected && styles.subtopicIndexSelected]}>
+                                        <Text style={[styles.subtopicIndexText, selected && styles.subtopicIndexTextSelected]}>{index + 1}</Text>
+                                    </View>
+                                    <View style={styles.subtopicInfo}>
+                                        <Text style={[styles.subtopicTitle, selected && styles.subtopicTitleSelected]} numberOfLines={1}>{subtopicTitle}</Text>
+                                        <Text style={styles.subtopicMeta} numberOfLines={1}>
+                                            {new Date(item.created_at).toLocaleDateString(undefined, {
+                                                year: 'numeric',
+                                                month: 'short',
+                                                day: 'numeric'
+                                            })}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                )}
+
+                {showSubtopicContent ? (
+                    <>
+                        <TouchableOpacity style={styles.subtopicBackBtn} onPress={handleBackToSubtopics}>
+                            <Ionicons name="arrow-back" size={18} color="#4E342E" />
+                            <Text style={styles.subtopicBackText}>Back to subtopics</Text>
+                        </TouchableOpacity>
+
+                        <View style={[styles.noteContentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+                            <Text style={styles.noteContentTitle}>{note?.subtopic || note?.title || 'Selected Subtopic'}</Text>
+                            <WebView
+                                originWhitelist={['*']}
+                                source={{ html: renderContentHtml(note?.content || '') }}
+                                onMessage={(event) => {
+                                    const newHeight = parseInt(event.nativeEvent.data);
+                                    if (newHeight > 0 && note?.id) {
+                                        setWebViewHeights((heights) => ({ ...heights, [note.id]: newHeight + 36 }));
+                                    }
+                                }}
+                                style={{ height: webViewHeights[note?.id || ''] || 260, backgroundColor: 'transparent' }}
+                                scrollEnabled={false}
+                            />
+                        </View>
+
+                        {Array.isArray(note?.quiz) && note.quiz.length > 0 && (
+                            <View style={styles.quizSection}>
+                                <Text style={[styles.sectionTitle, { color: '#000000' }]}>
+                                    Subtopic Quiz ({note?.quiz?.length || 0} question{(note?.quiz?.length || 0) !== 1 ? 's' : ''})
+                                </Text>
+                                {(note?.quiz || []).map((q: any, idx: number) => (
+                                    <View key={idx} style={[styles.qCard, { backgroundColor: '#FFFFFF', borderColor: '#D7CCC8' }]}>
                                 <Text style={[styles.qText, { color: '#3E2723' }]}>{idx + 1}. {q.question}</Text>
                                 <View style={styles.optionsList}>
                                     {['A', 'B', 'C', 'D'].map((opt, oIdx) => (
@@ -182,6 +351,8 @@ export function NoteDetailView({ noteId, onBack, onEdit, onDelete }: NoteDetailV
                         ))}
                     </View>
                 )}
+                    </>
+                ) : null}
             </ScrollView>
         </View >
     );
@@ -218,6 +389,159 @@ const styles = StyleSheet.create({
         maxWidth: 800,
         alignSelf: 'center',
         width: '100%'
+    },
+    topicIntro: {
+        marginBottom: 16,
+        paddingHorizontal: 2
+    },
+    topicIntroTitle: {
+        fontSize: 22,
+        fontWeight: '900',
+        color: '#3E2723',
+        marginBottom: 4
+    },
+    topicIntroText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#64748B'
+    },
+    subtopicList: {
+        marginBottom: 20,
+        gap: 12
+    },
+    subtopicItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        padding: 14,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: '#E7E0D7',
+        backgroundColor: '#FFFFFF'
+    },
+    subtopicItemSelected: {
+        borderColor: '#864b03',
+        backgroundColor: '#FFF3E0'
+    },
+    subtopicIndex: {
+        width: 34,
+        height: 34,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#F8EFE6'
+    },
+    subtopicIndexSelected: {
+        backgroundColor: '#864b03'
+    },
+    subtopicIndexText: {
+        fontSize: 14,
+        fontWeight: '900',
+        color: '#864b03'
+    },
+    subtopicIndexTextSelected: {
+        color: '#FFFFFF'
+    },
+    subtopicInfo: {
+        flex: 1
+    },
+    subtopicTitle: {
+        fontSize: 15,
+        fontWeight: '900',
+        color: '#3E2723',
+        marginBottom: 2
+    },
+    subtopicTitleSelected: {
+        color: '#4E342E'
+    },
+    subtopicMeta: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748B'
+    },
+    noteContentCard: {
+        borderWidth: 1,
+        borderRadius: 24,
+        padding: 14,
+        marginBottom: 20,
+        borderColor: '#E7E0D7'
+    },
+    noteContentTitle: {
+        fontSize: 18,
+        fontWeight: '900',
+        color: '#3E2723',
+        marginBottom: 10
+    },
+    subtopicBackBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 16,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 14,
+        backgroundColor: '#FFF3E0',
+        alignSelf: 'flex-start'
+    },
+    subtopicBackText: {
+        color: '#4E342E',
+        fontSize: 13,
+        fontWeight: '800'
+    },
+    accordionCard: {
+        borderWidth: 1,
+        borderRadius: 18,
+        marginBottom: 12,
+        overflow: 'hidden',
+        backgroundColor: '#FFFFFF',
+        borderColor: '#D7CCC8'
+    },
+    accordionHeader: {
+        minHeight: 64,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12
+    },
+    accordionTitleWrap: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12
+    },
+    accordionIndex: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        overflow: 'hidden',
+        textAlign: 'center',
+        textAlignVertical: 'center',
+        backgroundColor: '#FFF8F6',
+        color: '#864b03',
+        fontSize: 12,
+        fontWeight: '900',
+        borderWidth: 1,
+        borderColor: '#D7CCC8'
+    },
+    accordionTitleTextWrap: { flex: 1 },
+    accordionTitle: {
+        fontSize: 15,
+        fontWeight: '900',
+        color: '#3E2723',
+        marginBottom: 3
+    },
+    accordionMeta: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748B'
+    },
+    accordionBody: {
+        paddingHorizontal: 16,
+        paddingBottom: 16,
+        borderTopWidth: 1,
+        borderTopColor: '#EFEBE9'
     },
     noteCard: {
         padding: 24,

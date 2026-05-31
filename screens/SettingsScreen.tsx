@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen, Header, Card } from '../components/Layout';
@@ -7,13 +7,13 @@ import * as syncService from '../services/syncService';
 import { useAppStore } from '../store/useAppStore';
 import { useNavigation } from '@react-navigation/native';
 import { AppNavigationProp } from '../navigation/types';
-import { supabase } from '../services/supabaseDatabase';
+import { supabase, deleteCurrentUserAccount } from '../services/supabaseDatabase';
 
 export function SettingsScreen() {
     const navigation = useNavigation<AppNavigationProp>();
-    const { initialize, theme, userProfile, logout } = useAppStore();
+    const { initialize, userProfile, logout } = useAppStore();
     const [resetting, setResetting] = useState(false);
-    const isDark = theme === 'dark';
+    const [deletingAccount, setDeletingAccount] = useState(false);
 
     const handleLogout = () => {
         Alert.alert(
@@ -53,6 +53,70 @@ export function SettingsScreen() {
             [
                 { text: "Cancel", style: "cancel" },
                 { text: "Reset Everything", style: "destructive", onPress: performReset }
+            ]
+        );
+    };
+
+    const performDeleteAccount = async () => {
+        if (!userProfile?.id) {
+            Alert.alert("Delete Account", "You need to be signed in before you can delete your account.");
+            return;
+        }
+
+        setDeletingAccount(true);
+        try {
+            await deleteCurrentUserAccount();
+
+            try {
+                await supabase.auth.signOut();
+            } catch (signOutError) {
+                console.warn('Post-delete sign out warning:', signOutError);
+            }
+
+            await logout();
+            await localDB.clearAllLocalData();
+
+            Alert.alert("Account Deleted", "Your account and local data have been permanently removed.", [
+                {
+                    text: "OK",
+                    onPress: () => {
+                        navigation.reset({
+                            index: 0,
+                            routes: [{ name: 'Login' }],
+                        });
+                    }
+                }
+            ]);
+        } catch (error: any) {
+            console.error('Delete account error:', error);
+            Alert.alert("Delete Account Failed", error?.message || "We could not delete your account right now.");
+        } finally {
+            setDeletingAccount(false);
+        }
+    };
+
+    const handleDeleteAccount = () => {
+        if (deletingAccount) return;
+
+        Alert.alert(
+            "Delete Account",
+            "This will permanently remove your account and local data. This action cannot be undone.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Continue",
+                    style: "destructive",
+                    onPress: () => {
+                        Alert.alert(
+                            "Final Confirmation",
+                            "Your Studycology account will be deleted permanently from Supabase. Do you want to proceed?",
+                            [
+                                { text: "No", style: "cancel" },
+                                { text: "Delete Account", style: "destructive", onPress: performDeleteAccount }
+                            ]
+                        );
+                    }
+                }
             ]
         );
     };
@@ -125,6 +189,21 @@ export function SettingsScreen() {
                             <Text style={[styles.itemSubtitle, { color: '#7F1D1D' }]}>Wipe local exams and synced content</Text>
                         </View>
                     </Card>
+                    <Card style={styles.deleteCard} onPress={handleDeleteAccount}>
+                        <View style={[styles.iconContainer, { backgroundColor: '#FEE2E2' }]}>
+                            {deletingAccount ? (
+                                <ActivityIndicator size="small" color="#B91C1C" />
+                            ) : (
+                                <Ionicons name="person-remove-outline" size={22} color="#B91C1C" />
+                            )}
+                        </View>
+                        <View style={styles.itemContent}>
+                            <Text style={styles.deleteTitle}>Delete Account</Text>
+                            <Text style={[styles.itemSubtitle, { color: '#7F1D1D' }]}>
+                                Permanently remove your account from Studycology
+                            </Text>
+                        </View>
+                    </Card>
                 </View>
 
                 <View style={styles.section}>
@@ -156,10 +235,12 @@ const styles = StyleSheet.create({
     sectionLabel: { fontSize: 10, fontWeight: '900', color: '#5D4037', letterSpacing: 1, marginLeft: 8, marginBottom: 10 },
     item: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16, marginBottom: 8, backgroundColor: '#864b03' },
     dangerCard: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16, marginBottom: 8, borderWidth: 1, backgroundColor: '#FFF0F0', borderColor: '#FECACA' },
+    deleteCard: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16, marginBottom: 8, borderWidth: 1, backgroundColor: '#FEF2F2', borderColor: '#FCA5A5' },
     iconContainer: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     itemContent: { flex: 1 },
     itemTitle: { fontSize: 14, fontWeight: '900' },
     dangerTitle: { fontSize: 14, fontWeight: '900', color: '#EF4444' },
+    deleteTitle: { fontSize: 14, fontWeight: '900', color: '#B91C1C' },
     itemSubtitle: { fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: '500', marginTop: 1 },
     logoutBtn: { height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 1, marginTop: 10, backgroundColor: '#FFF', borderColor: '#FECACA' },
     logoutText: { fontSize: 15, fontWeight: '900', color: '#EF4444' },

@@ -28,6 +28,11 @@ serve(async (req) => {
             throw new Error("Missing required fields: email and amount are required.");
         }
 
+        if (!metadata?.user_id || !metadata?.device_id) {
+            console.error('[Init] Error: Missing device metadata', metadata);
+            throw new Error("Missing required payment metadata: user_id and device_id are required.");
+        }
+
         console.log(`[Init] Initializing payment for ${email}, amount: ${amount}`);
 
         const response = await fetch('https://api.paystack.co/transaction/initialize', {

@@ -28,7 +28,7 @@ export function WelcomeScreen() {
                         resizeMode="contain"
                         tintColor={PRIMARY_BROWN}
                     />
-                    <Text style={styles.brandTitle}>2026</Text>
+                    <Text style={styles.brandTitle}>2027</Text>
                     <Text style={styles.tagline}>Learn Differently</Text>
                 </View>
 
@@ -50,9 +50,10 @@ export function WelcomeScreen() {
                         >
                             <Text style={styles.btnTextSecondary}>Log In</Text>
                         </TouchableOpacity>
+                            <Text style={styles.btnTextSecondaryy}>Neltechnological solution Ltd</Text>
+
                     </View>
 
-                    <Text style={styles.copyright}>© AF SANNI Limited</Text>
                 </View>
             </View>
         </SafeAreaView>
@@ -145,6 +146,12 @@ const styles = StyleSheet.create({
         color: PRIMARY_BROWN,
         fontSize: 16,
         fontWeight: '700',
+    },
+      btnTextSecondaryy: {
+        color: PRIMARY_BROWN,
+        fontSize: 16,
+        fontWeight: '700',
+        textAlign:'center',
     },
     copyright: {
         color: '#8D6E63',

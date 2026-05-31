@@ -1,464 +1,433 @@
-// import React, { useEffect, useRef, useState } from 'react';
-// import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, useWindowDimensions } from 'react-native';
-// import { WebView } from 'react-native-webview';
-// import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
-// import { RootStackParamList, AppNavigationProp } from '../navigation/types';
-// import { Screen, Header } from '../components/Layout';
-// import { COLORS } from '../theme/colors';
-// import { Ionicons } from '@expo/vector-icons';
-// import * as localDB from '../services/localDatabase';
-// import { useAppStore } from '../store/useAppStore';
-
-// type NoteDetailRouteProp = RouteProp<RootStackParamList, 'NoteDetail'>;
-
-// export function NoteDetailScreen() {
-//     const route = useRoute<NoteDetailRouteProp>();
-//     const navigation = useNavigation<AppNavigationProp>();
-//     const { noteId } = route.params;
-//     const { theme, fontSize } = useAppStore();
-//     const isDark = theme === 'dark';
-//     const { height: windowHeight } = useWindowDimensions();
-
-//     const bodySize = fontSize === 'small' ? 14 : fontSize === 'medium' ? 16 : fontSize === 'large' ? 19 : 22;
-//     const textColor = isDark ? '#3E2723' : '#3E2723';
-//     const accentColor = isDark ? '#FFB74D' : '#E65100';
-//     const blockquoteBg = isDark ? 'rgba(255, 183, 77, 0.1)' : 'rgba(230, 81, 0, 0.05)';
-//     const blockquoteText = isDark ? '#CBD5E1' : '#5D4037';
-
-//     const [note, setNote] = useState<any>(null);
-//     const [score, setScore] = useState<{ score: number, total: number } | null>(null);
-//     const [loading, setLoading] = useState(true);
-//     const [readingProgress, setReadingProgress] = useState(0);
-//     const webViewHeight = Math.min(520, windowHeight * 0.55);
-//     const lastSavedProgressRef = useRef(0);
-//     const pendingProgressRef = useRef(0);
-
-//     useEffect(() => {
-//         loadNote();
-//     }, [noteId]);
-
-//     const loadNote = async () => {
-//         try {
-//             setLoading(true);
-//             const [noteData, scoreData] = await Promise.all([
-//                 localDB.getNoteByIdLocal(noteId),
-//                 localDB.getNoteHighestScore(noteId)
-//             ]);
-//             const progressData = await localDB.getNoteReadProgress(noteId);
-//             setNote(noteData);
-//             setScore(scoreData);
-//             const initialProgress = Number(progressData?.progress || 0);
-//             setReadingProgress(initialProgress);
-//             lastSavedProgressRef.current = initialProgress;
-//         } catch (error) {
-//             console.error('Error loading note:', error);
-//         } finally {
-//             setLoading(false);
-//         }
-//     };
-
-//     const persistProgress = async (progress: number) => {
-//         const rounded = Math.max(0, Math.min(100, Math.round(progress)));
-//         if (rounded <= lastSavedProgressRef.current) return;
-//         try {
-//             await localDB.saveNoteReadProgress(noteId, rounded);
-//             lastSavedProgressRef.current = rounded;
-//         } catch (error) {
-//             console.error('Error saving note progress:', error);
-//         }
-//     };
-
-//     const updateProgressState = (progress: number) => {
-//         const safeProgress = Math.max(0, Math.min(100, progress));
-//         setReadingProgress(safeProgress);
-//         pendingProgressRef.current = safeProgress;
-
-//         // Save in meaningful steps to avoid excessive writes.
-//         if (Math.round(safeProgress) - lastSavedProgressRef.current >= 5 || Math.round(safeProgress) >= 100) {
-//             persistProgress(safeProgress);
-//         }
-//     };
-
-//     const handleScroll = (event: any) => {
-//         const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
-//         const totalHeight = contentSize.height;
-//         const viewportHeight = layoutMeasurement.height;
-//         const currentPos = contentOffset.y;
-
-//         const progress = totalHeight <= viewportHeight + 50 ? 100 : (currentPos / (totalHeight - viewportHeight)) * 100;
-//         updateProgressState(progress);
-//     };
-
-//     useEffect(() => {
-//         return () => {
-//             if (pendingProgressRef.current > 0) {
-//                 persistProgress(pendingProgressRef.current);
-//             }
-//         };
-//     }, []);
-
-//     if (loading) {
-//         return (
-//             <Screen style={[styles.center, { backgroundColor: '#101920' }]}>
-//                 <ActivityIndicator color={COLORS.primary[600]} size="large" />
-//             </Screen>
-//         );
-//     }
-
-//     if (!note) {
-//         return (
-//             <Screen style={[styles.center, { backgroundColor: '#101920' }]}>
-//                 <Text style={[styles.errorText, { color: '#94A3B8' }]}>Note not found</Text>
-//             </Screen>
-//         );
-//     }
-
-//     return (
-//         <Screen scrollable={false} style={[styles.bg, { backgroundColor: '#FFF8F6' }]}>
-//             <Header
-//                 title="Study Note"
-//                 onBack={async () => {
-//                     await persistProgress(readingProgress);
-//                     navigation.goBack();
-//                 }}
-//                 style={{ backgroundColor: '#FFF8F6', borderBottomColor: '#FFF8F6' }}
-//                 titleStyle={{ color: '#000000' }}
-//                 iconColor="#000000"
-//             />
-
-//             <ScrollView
-//                 contentContainerStyle={styles.content}
-//                 showsVerticalScrollIndicator={false}
-//                 onScroll={handleScroll}
-//                 scrollEventThrottle={32}
-//             >
-//                 <View style={styles.noteHeader}>
-//                     <View style={styles.badgeRow}>
-//                         <View style={styles.subjectBadge}>
-//                             <Text style={styles.subjectText}>{note.subject || 'GENERAL'}</Text>
-//                         </View>
-//                         {note.topic && (
-//                             <Text style={[styles.topicLabel, { color: '#94A3B8' }]}>{note.topic}</Text>
-//                         )}
-//                     </View>
-//                     <Text style={styles.title}>{note.title}</Text>
-//                     <View style={styles.dateRow}>
-//                         <Ionicons name="calendar-outline" size={14} color="#475569" />
-//                         <Text style={styles.dateText}>
-//                             {new Date(note.created_at).toLocaleDateString(undefined, {
-//                                 day: 'numeric',
-//                                 month: 'short',
-//                                 year: 'numeric'
-//                             })}
-//                         </Text>
-//                     </View>
-//                     <View style={styles.progressWrap}>
-//                         <View style={styles.progressMetaRow}>
-//                             <Text style={styles.progressLabel}>Reading Progress</Text>
-//                             <Text style={styles.progressPercent}>{Math.round(readingProgress)}%</Text>
-//                         </View>
-//                         <View style={styles.progressTrack}>
-//                             <View style={[styles.progressFill, { width: `${Math.max(3, Math.round(readingProgress))}%` }]} />
-//                         </View>
-//                     </View>
-//                 </View>
-
-//                  <View style={[styles.bodyContainer, { backgroundColor: '#FFFFFF' }]}>
-//                     <WebView
-//                         originWhitelist={['*']}
-//                         source={{
-//                             html: `
-//                                 <html>
-//                                 <head>
-//                                     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-//                                     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-//                                     <style>
-//                                         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-//                                         body {
-//                                             font-family: 'Inter', -apple-system, system-ui;
-//                                             font-size: ${bodySize}px;
-//                                             line-height: 1.7;
-//                             color: ${textColor};
-//                             min-height: auto;
-//                             overflow: visible;
-//                             margin: 0;
-//                             padding: 0;
-//                         }
-//                         h1, h2, h3, h4 { color: ${accentColor}; margin-top: 1.5em; margin-bottom: 0.5em; font-weight: 800; }
-//                         .ql-editor { padding: 0 !important; }
-//                         .ql-editor p { margin-bottom: 1.2em; }
-//                         .ql-editor blockquote {
-//                             border-left: 4px solid ${accentColor};
-//                             padding-left: 16px;
-//                             background-color: ${blockquoteBg};
-//                             color: ${blockquoteText};
-//                             font-style: italic;
-//                         }
-//                         img { max-width: 100%; height: auto; border-radius: 8px; }
-//                     </style>
-//                 </head>
-//                 <body class="ql-snow">
-//                     <div class="ql-editor" id="content">
-//                         ${note.content}
-//                     </div>
-//                     <script>
-//                         function sendHeight() {
-//                             const height = document.getElementById('content').offsetHeight;
-//                             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'height', height }));
-//                         }
-//                         window.addEventListener('load', function() {
-//                             setTimeout(sendHeight, 300);
-//                         });
-//                         window.addEventListener('resize', sendHeight);
-//                     </script>
-//                 </body>
-//                 </html>
-//             `
-//         }}
-//         style={{ height: webViewHeight, backgroundColor: 'transparent' }}
-//         scrollEnabled={true}
-//         nestedScrollEnabled={true}
-//         javaScriptEnabled={true}
-//         domStorageEnabled={true}
-//     />
-// </View>
-
-
-//                 {note.quiz && note.quiz.length > 0 && (
-//                     <TouchableOpacity
-//                         activeOpacity={0.8}
-//                         style={[styles.quizBtn, { backgroundColor: '#3E2723' }]}
-//                         onPress={() => navigation.navigate('NoteQuiz', { noteId })}
-//                     >
-//                         <View style={styles.quizBtnIcon}>
-//                             <Ionicons name="school" size={24} color="#FFF" />
-//                         </View>
-//                         <View>
-//                             <Text style={styles.quizBtnTitle}>Test Your Knowledge</Text>
-//                             <Text style={styles.quizBtnSubtitle}>
-//                                 {score ? `Best: ${score.score}/${score.total}` : `Quick ${note.quiz.length} question quiz`}
-//                             </Text>
-//                         </View>
-//                         <Ionicons name="chevron-forward" size={20} color="#FFF" style={{ marginLeft: 'auto' }} />
-//                     </TouchableOpacity>
-//                 )}
-//             </ScrollView>
-//         </Screen>
-//     );
-// }
-
-// const styles = StyleSheet.create({
-//     bg: { flex: 1 },
-//     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-//     content: { padding: 16, paddingBottom: 40 },
-//     noteHeader: { marginBottom: 20 },
-//     badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-//     subjectBadge: { backgroundColor: '#EFEBE9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#D7CCC8' },
-//     subjectText: { color: '#3E2723', fontSize: 10, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' },
-//     topicLabel: { fontSize: 12, fontWeight: '700', color: '#5D4037' },
-//     title: { fontSize: 24, fontWeight: '900', lineHeight: 32, marginBottom: 10, color: '#1E293B' },
-//     dateRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-//     dateText: { fontSize: 12, fontWeight: '700', color: '#475569' },
-//     progressWrap: { marginTop: 12 },
-//     progressMetaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-//     progressLabel: { fontSize: 11, fontWeight: '800', color: '#5D4037', textTransform: 'uppercase', letterSpacing: 0.5 },
-//     progressPercent: { fontSize: 12, fontWeight: '900', color: '#864b03' },
-//     progressTrack: { height: 8, borderRadius: 6, backgroundColor: '#EFEBE9', overflow: 'hidden' },
-//     progressFill: { height: '100%', borderRadius: 6, backgroundColor: '#864b03' },
-//     bodyContainer: { padding: 16, borderRadius: 20, marginBottom: 20 },
-//     errorText: { fontWeight: '800' },
-//     quizBtn: { marginTop: 20, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
-//     quizBtnIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255, 255, 255, 0.2)', alignItems: 'center', justifyContent: 'center' },
-//     quizBtnTitle: { color: '#FFF', fontSize: 16, fontWeight: '900' },
-//     quizBtnSubtitle: { color: 'rgba(255, 255, 255, 0.8)', fontSize: 11, fontWeight: '700' }
-// });
-
-
-
-
-
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, useWindowDimensions } from 'react-native';
+import {
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    ActivityIndicator,
+    TouchableOpacity,
+    FlatList,
+} from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { RootStackParamList, AppNavigationProp } from '../navigation/types';
 import { Screen, Header } from '../components/Layout';
-import { COLORS } from '../theme/colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as localDB from '../services/localDatabase';
 import { useAppStore } from '../store/useAppStore';
+import * as Speech from 'expo-speech';
+
+// ─── Color palette ────────────────────────────────────────────────────────────
+const C = {
+    bg: '#FFF8F6',
+    bgDark: '#101920',
+    primary: '#E65100',
+    primaryDeep: '#3E2723',
+    primaryLight: '#FEF3E8',
+    primaryBorder: '#E7D5CB',
+    cream: '#EFEBE9',
+    creamBorder: '#D7CCC8',
+    brown: '#864b03',
+    brownMid: '#5D4037',
+    text: '#1E293B',
+    textMuted: '#475569',
+    textFaint: '#94A3B8',
+    white: '#FFFFFF',
+    divider: '#F1F5F9',
+};
+
+function stripHtml(html: string): string {
+    if (!html) return '';
+    return html
+        .replace(/<[^>]*>/g, ' ') // Strip HTML tags
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/\s+/g, ' ') // Collapse multiple spaces
+        .trim();
+}
 
 type NoteDetailRouteProp = RouteProp<RootStackParamList, 'NoteDetail'>;
 
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export function NoteDetailScreen() {
     const route = useRoute<NoteDetailRouteProp>();
     const navigation = useNavigation<AppNavigationProp>();
-    const { noteId } = route.params;
-    const { theme, fontSize } = useAppStore();
-    const isDark = theme === 'dark';
-    const { height: windowHeight } = useWindowDimensions();
+    const { noteId, noteIds } = route.params;
+    const { fontSize } = useAppStore();
 
     const bodySize = fontSize === 'small' ? 14 : fontSize === 'medium' ? 16 : fontSize === 'large' ? 19 : 22;
-    const textColor = isDark ? '#3E2723' : '#3E2723';
-    const accentColor = isDark ? '#FFB74D' : '#E65100';
-    const blockquoteBg = isDark ? 'rgba(255, 183, 77, 0.1)' : 'rgba(230, 81, 0, 0.05)';
-    const blockquoteText = isDark ? '#CBD5E1' : '#5D4037';
 
-    const [note, setNote] = useState<any>(null);
-    const [score, setScore] = useState<{ score: number, total: number } | null>(null);
+    const [topicNotes, setTopicNotes] = useState<any[]>([]);
+    const [topicTitle, setTopicTitle] = useState('');
     const [loading, setLoading] = useState(true);
-    const [webViewHeight, setWebViewHeight] = useState(600);
+
+    // 'list' = subtopic list, 'note' = reading a subtopic
+    const [viewMode, setViewMode] = useState<'list' | 'note'>('list');
+    const [activeNote, setActiveNote] = useState<any>(null);
+    const [webViewHeight, setWebViewHeight] = useState(260);
+    const [score, setScore] = useState<{ score: number; total: number } | null>(null);
+
+    const [isSpeaking, setIsSpeaking] = useState(false);
+
+    const noteIdsKey = `${noteId}|${(noteIds && noteIds.length > 0 ? noteIds : [noteId]).join('|')}`;
 
     useEffect(() => {
-        loadNote();
-    }, [noteId]);
+        loadNotes();
+        return () => {
+            Speech.stop();
+        };
+    }, [noteIdsKey]);
 
-    const loadNote = async () => {
+    useEffect(() => {
+        return () => {
+            Speech.stop();
+            setIsSpeaking(false);
+        };
+    }, [activeNote]);
+
+    const stopSpeaking = () => {
+        Speech.stop();
+        setIsSpeaking(false);
+    };
+
+    const speakNote = (note: any) => {
+        if (!note) return;
+        Speech.stop(); // Stop any ongoing speech first
+
+        const titleText = note.subtopic || note.title || 'Note';
+        const bodyText = stripHtml(note.content || '');
+        const combinedText = `${titleText}. ${bodyText}`;
+
+        setIsSpeaking(true);
+        Speech.speak(combinedText, {
+            onDone: () => setIsSpeaking(false),
+            onStopped: () => setIsSpeaking(false),
+            onError: () => setIsSpeaking(false),
+        });
+    };
+
+    const toggleSpeech = () => {
+        if (isSpeaking) {
+            stopSpeaking();
+        } else {
+            speakNote(activeNote);
+        }
+    };
+
+    const loadNotes = async () => {
         try {
             setLoading(true);
-            const [noteData, scoreData] = await Promise.all([
+            const idsToLoad = noteIds && noteIds.length > 0 ? noteIds : [noteId];
+            const [selectedNote, loadedNotes] = await Promise.all([
                 localDB.getNoteByIdLocal(noteId),
-                localDB.getNoteHighestScore(noteId)
+                Promise.all(idsToLoad.map((id) => localDB.getNoteByIdLocal(id))),
             ]);
-            setNote(noteData);
-            setScore(scoreData);
-        } catch (error) {
-            console.error('Error loading note:', error);
+
+            const sorted = loadedNotes
+                .filter(Boolean)
+                .sort((a: any, b: any) => {
+                    if (a.is_default && !b.is_default) return -1;
+                    if (!a.is_default && b.is_default) return 1;
+                    return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+                });
+
+            const rootNote = sorted.find((n: any) => n.is_default) || selectedNote || sorted[0];
+            const title = rootNote?.topic || rootNote?.title || 'Study Note';
+
+            setTopicNotes(sorted.length > 0 ? sorted : rootNote ? [rootNote] : []);
+            setTopicTitle(title);
+        } catch (err) {
+            console.error('Error loading notes:', err);
         } finally {
             setLoading(false);
         }
     };
 
+    const openNote = async (item: any) => {
+        setActiveNote(item);
+        setWebViewHeight(260);
+        setViewMode('note');
+
+        // Load highest score for THIS subtopic's quiz (filtered by note id)
+        if (item.quiz && item.quiz.length > 0) {
+            const scoreData = await localDB.getNoteHighestScore(item.id);
+            setScore(scoreData);
+        } else {
+            setScore(null);
+        }
+
+        // Start speaking the note automatically
+        speakNote(item);
+    };
+
+    const goBack = () => {
+        if (viewMode === 'note') {
+            stopSpeaking();
+            setViewMode('list');
+            setActiveNote(null);
+            setScore(null);
+        } else {
+            navigation.goBack();
+        }
+    };
+
+    // ── Loading ───────────────────────────────────────────────────────────────
     if (loading) {
         return (
-            <Screen style={[styles.center, { backgroundColor: '#101920' }]}>
-                <ActivityIndicator color={COLORS.primary[600]} size="large" />
+            <Screen style={[styles.center, { backgroundColor: C.bgDark }]}>
+                <ActivityIndicator color={C.primary} size="large" />
             </Screen>
         );
     }
 
-    if (!note) {
+    // ── Subtopics List View ───────────────────────────────────────────────────
+    if (viewMode === 'list') {
         return (
-            <Screen style={[styles.center, { backgroundColor: '#101920' }]}>
-                <Text style={[styles.errorText, { color: '#94A3B8' }]}>Note not found</Text>
+            <Screen scrollable={false} style={{ backgroundColor: C.bg, flex: 1 }}>
+                <Header
+                    title={topicTitle}
+                    onBack={goBack}
+                    style={{ backgroundColor: C.bg, borderBottomColor: C.bg }}
+                    titleStyle={{ color: C.text }}
+                    iconColor={C.text}
+                />
+
+                <FlatList
+                    data={topicNotes}
+                    keyExtractor={(item) => item.id}
+                    contentContainerStyle={styles.listContent}
+                    ItemSeparatorComponent={() => <View style={styles.separator} />}
+                    ListHeaderComponent={
+                        <View style={styles.listHeader}>
+                            <View style={styles.subjectBadge}>
+                                <Text style={styles.subjectText}>
+                                    {topicNotes[0]?.subject || 'GENERAL'}
+                                </Text>
+                            </View>
+                            <Text style={styles.listTitle}>{topicTitle}</Text>
+                            <Text style={styles.countLabel}>
+                                {topicNotes.length} subtopic{topicNotes.length !== 1 ? 's' : ''}
+                            </Text>
+                        </View>
+                    }
+                    renderItem={({ item }) => (
+                        <SubtopicRow
+                            item={item}
+                            onPress={() => openNote(item)}
+                        />
+                    )}
+                />
             </Screen>
         );
     }
 
+    // ── Note Content View ─────────────────────────────────────────────────────
+    if (!activeNote) return null;
+
+    const noteSubtitle = activeNote.subtopic || activeNote.title || 'Note';
+    const noteBody = activeNote.content || '';
+    // Quiz is tied to this specific subtopic's note id — no cross-contamination
+    const quiz = Array.isArray(activeNote.quiz) ? activeNote.quiz : [];
+
+    // const contentHtml = `
+    //     <html>
+    //     <head>
+    //         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    //         <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    //         <style>
+    //             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    //             html, body {
+    //                 font-family: 'Inter', -apple-system, system-ui;
+    //                 font-size: ${bodySize}px;
+    //                 line-height: 1.7;
+    //                 color: ${C.primaryDeep};
+    //                 background: transparent;
+    //                 margin: 0; padding: 0;
+    //             }
+    //             h1,h2,h3,h4 { color: ${C.primary}; margin-top:1em; margin-bottom:0.4em; font-weight:800; }
+    //             .ql-editor { padding: 0 !important; }
+    //             .ql-editor p { margin: 0 0 0.85em; }
+    //             .ql-editor p:last-child { margin-bottom: 0; }
+    //             .ql-editor blockquote {
+    //                 border-left: 4px solid ${C.primary};
+    //                 padding-left: 16px;
+    //                 color: ${C.brownMid};
+    //                 font-style: italic;
+    //             }
+    //             img { max-width:100%; height:auto; border-radius:8px; }
+    //         </style>
+    //     </head>
+    //     <body class="ql-snow">
+    //         <div class="ql-editor" id="content">${noteBody}</div>
+    //         <script>
+    //             function sendHeight() {
+    //                 const h = document.getElementById('content').offsetHeight;
+    //                 window.ReactNativeWebView.postMessage(h);
+    //             }
+    //             window.onload = sendHeight;
+    //             window.addEventListener('resize', sendHeight);
+    //         </script>
+    //     </body>
+    //     </html>
+    // `;
+   
+   
+    const contentHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html, body {
+                font-family: -apple-system, system-ui;
+                font-size: 15px;
+                line-height: 1.5;
+                color: #3E2723;
+                background-color: transparent;
+                width: 100%;
+                height: auto;
+                overflow: hidden;
+            }
+            h1, h2, h3, h4 {
+                color: #864b03;
+                font-weight: 800;
+                margin: 0 0 0.6em;
+            }
+            .ql-container.ql-snow { border: none !important; }
+            .ql-editor {
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+                height: auto !important;
+                min-height: unset !important;
+            }
+            .ql-editor p { margin: 0 0 0.75em; line-height: 1.5; }
+            .ql-editor p:last-child { margin-bottom: 0; }
+            .ql-editor ul, .ql-editor ol { margin: 0 0 0.8em; padding-left: 18px; }
+            .ql-editor li { margin-bottom: 0.35em; }
+            img { max-width: 100%; height: auto; border-radius: 8px; }
+        </style>
+    </head>
+    <body class="ql-snow">
+        <div class="ql-editor" id="content">${noteBody || ''}</div>
+        <script>
+            var lastH = 0;
+            var stableCount = 0;
+
+            function pollUntilStable() {
+                var content = document.getElementById('content');
+                var h = Math.max(document.body.scrollHeight, content.scrollHeight, content.offsetHeight);
+                if (h > 0 && h === lastH) {
+                    stableCount++;
+                    if (stableCount >= 3) {
+                        window.ReactNativeWebView.postMessage(String(h));
+                        return;
+                    }
+                } else {
+                    stableCount = 0;
+                    lastH = h;
+                }
+                setTimeout(pollUntilStable, 100);
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                pollUntilStable();
+            });
+        </script>
+    </body>
+    </html>
+`;
     return (
-        <Screen scrollable={false} style={[styles.bg, { backgroundColor: '#FFF8F6' }]}>
+        <Screen scrollable={false} style={{ backgroundColor: C.bg, flex: 1 }}>
             <Header
-                title="Study Note"
-                onBack={() => navigation.goBack()}
-                style={{ backgroundColor: '#FFF8F6', borderBottomColor: '#FFF8F6' }}
-                titleStyle={{ color: '#000000' }}
-                iconColor="#000000"
+                title={noteSubtitle}
+                onBack={goBack}
+                style={{ backgroundColor: C.bg, borderBottomColor: C.bg }}
+                titleStyle={{ color: C.text }}
+                iconColor={C.text}
+                rightElement={
+                    <TouchableOpacity 
+                        onPress={toggleSpeech} 
+                        style={{ padding: 8, marginRight: -8 }}
+                        activeOpacity={0.7}
+                    >
+                        <Ionicons 
+                            name={isSpeaking ? "volume-high" : "volume-medium-outline"} 
+                            size={24} 
+                            color={isSpeaking ? C.primary : C.text} 
+                        />
+                    </TouchableOpacity>
+                }
             />
 
-            {/* Outer ScrollView — no longer tracks progress */}
             <ScrollView
-                contentContainerStyle={styles.content}
+                contentContainerStyle={styles.noteContent}
                 showsVerticalScrollIndicator={false}
             >
-                <View style={styles.noteHeader}>
-                    <View style={styles.badgeRow}>
-                        <View style={styles.subjectBadge}>
-                            <Text style={styles.subjectText}>{note.subject || 'GENERAL'}</Text>
-                        </View>
-                        {note.topic && (
-                            <Text style={[styles.topicLabel, { color: '#94A3B8' }]}>{note.topic}</Text>
-                        )}
+                {/* Note heading */}
+                <View style={styles.noteHeaderBlock}>
+                    <View style={styles.subjectBadge}>
+                        <Text style={styles.subjectText}>
+                            {activeNote.subject || 'GENERAL'}
+                        </Text>
                     </View>
-                    <Text style={styles.title}>{note.title}</Text>
+                    <Text style={styles.noteMainTitle}>{noteSubtitle}</Text>
+
+                    {activeNote.reference && (
+                        <View style={styles.refRow}>
+                            <Ionicons name="book-outline" size={13} color={C.textMuted} />
+                            <Text style={styles.refText}>{activeNote.reference}</Text>
+                        </View>
+                    )}
+
                     <View style={styles.dateRow}>
-                        <Ionicons name="calendar-outline" size={14} color="#475569" />
+                        <Ionicons name="calendar-outline" size={13} color={C.textMuted} />
                         <Text style={styles.dateText}>
-                            {new Date(note.created_at).toLocaleDateString(undefined, {
-                                day: 'numeric',
-                                month: 'short',
-                                year: 'numeric'
+                            {new Date(activeNote.created_at).toLocaleDateString(undefined, {
+                                day: 'numeric', month: 'short', year: 'numeric',
                             })}
                         </Text>
                     </View>
                 </View>
 
-                <View style={[styles.richContentContainer, { backgroundColor: 'rgba(0,0,0,0.01)' }]}>
+                {/* Rich note content */}
+                <View style={styles.noteCard}>
                     <WebView
                         originWhitelist={['*']}
-                        source={{
-                            html: `
-                                <html>
-                                <head>
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                                    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-                                    <style>
-                                        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-                                        body {
-                                            font-family: 'Inter', -apple-system, system-ui;
-                                            font-size: ${bodySize}px;
-                                            line-height: 1.7;
-                                            color: #3E2723;
-                                            background-color: transparent;
-                                            margin: 0;
-                                            padding: 4px;
-                                        }
-                                        h1, h2, h3, h4 { color: #E65100; margin-top: 1.5em; margin-bottom: 0.5em; font-weight: 800; }
-                                        .ql-editor { padding: 0 !important; }
-                                        .ql-editor p { margin-bottom: 1.2em; }
-                                        .ql-editor blockquote {
-                                            border-left: 4px solid #E65100;
-                                            padding-left: 16px;
-                                            color: #5D4037;
-                                            font-style: italic;
-                                        }
-                                        img { max-width: 100%; height: auto; border-radius: 8px; }
-                                    </style>
-                                </head>
-                                <body class="ql-snow">
-                                    <div class="ql-editor" id="content">
-                                        ${note.content}
-                                    </div>
-                                    <script>
-                                        // Communicate height to parent to avoid nested scroll
-                                        function sendHeight() {
-                                            const height = document.getElementById('content').offsetHeight;
-                                            window.ReactNativeWebView.postMessage(height);
-                                        }
-                                        window.onload = sendHeight;
-                                        window.addEventListener('resize', sendHeight);
-                                    </script>
-                                </body>
-                                </html>
-                            `
-                        }}
-                        onMessage={(event) => {
-                            const newHeight = parseInt(event.nativeEvent.data);
-                            if (newHeight > 0) setWebViewHeight(newHeight);
+                        source={{ html: contentHtml }}
+                        onMessage={(e) => {
+                            const h = parseInt(e.nativeEvent.data);
+                            if (h > 0) setWebViewHeight(h + 32);
                         }}
                         style={{ height: webViewHeight, backgroundColor: 'transparent' }}
-                        scrollEnabled={true}
-                        nestedScrollEnabled={true}
-                        javaScriptEnabled={true}
-                        // domStorageEnabled={true
+                        scrollEnabled={false}
+                        javaScriptEnabled
                     />
                 </View>
 
-                {note.quiz && note.quiz.length > 0 && (
+                {/* Quiz CTA — outside noteCard, below it, only if THIS subtopic has a quiz */}
+                {quiz.length > 0 && (
                     <TouchableOpacity
-                        activeOpacity={0.8}
-                        style={[styles.quizBtn, { backgroundColor: '#3E2723' }]}
-                        onPress={() => navigation.navigate('NoteQuiz', { noteId })}
+                        activeOpacity={0.85}
+                        style={styles.quizBtn}
+                        onPress={() => navigation.navigate('NoteQuiz', { noteId: activeNote.id })}
                     >
                         <View style={styles.quizBtnIcon}>
-                            <Ionicons name="school" size={24} color="#FFF" />
+                            <Ionicons name="school" size={22} color={C.white} />
                         </View>
-                        <View>
+                        <View style={{ flex: 1 }}>
                             <Text style={styles.quizBtnTitle}>Test Your Knowledge</Text>
-                            <Text style={styles.quizBtnSubtitle}>
-                                {score ? `Best: ${score.score}/${score.total}` : `Quick ${note.quiz.length} question quiz`}
+                            <Text style={styles.quizBtnSub}>
+                                {score
+                                    ? `Best: ${score.score}/${score.total}`
+                                    : `${quiz.length} question quiz`}
                             </Text>
                         </View>
-                        <Ionicons name="chevron-forward" size={20} color="#FFF" style={{ marginLeft: 'auto' }} />
+                        <Ionicons name="chevron-forward" size={18} color={C.white} />
                     </TouchableOpacity>
                 )}
             </ScrollView>
@@ -466,22 +435,105 @@ export function NoteDetailScreen() {
     );
 }
 
+// ─── Subtopic Row ─────────────────────────────────────────────────────────────
+function SubtopicRow({ item, onPress }: { item: any; onPress: () => void }) {
+    const label = item.subtopic || item.title || 'Subtopic';
+    const hasQuiz = Array.isArray(item.quiz) && item.quiz.length > 0;
+
+    return (
+        <TouchableOpacity
+            activeOpacity={0.7}
+            style={styles.subtopicRow}
+            onPress={onPress}
+        >
+            <View style={styles.subtopicDot} />
+            <View style={styles.subtopicTextWrap}>
+                <Text style={styles.subtopicLabel} numberOfLines={2}>{label}</Text>
+                {hasQuiz && (
+                    <Text style={styles.quizTag}>Quiz available</Text>
+                )}
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={C.textFaint} />
+        </TouchableOpacity>
+    );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-    bg: { flex: 1 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    content: { padding: 16, paddingBottom: 40 },
-    noteHeader: { marginBottom: 20 },
-    badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-    subjectBadge: { backgroundColor: '#EFEBE9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#D7CCC8' },
-    subjectText: { color: '#3E2723', fontSize: 10, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' },
-    topicLabel: { fontSize: 12, fontWeight: '700', color: '#5D4037' },
-    title: { fontSize: 24, fontWeight: '900', lineHeight: 32, marginBottom: 10, color: '#1E293B' },
+
+    // List view
+    listContent: { paddingHorizontal: 16, paddingBottom: 40 },
+    listHeader: { paddingTop: 4, paddingBottom: 18 },
+    listTitle: {
+        fontSize: 22, fontWeight: '900', color: C.text,
+        marginTop: 10, marginBottom: 4, lineHeight: 28,
+    },
+    countLabel: { fontSize: 12, fontWeight: '800', color: C.brown },
+
+    separator: { height: 1, backgroundColor: C.divider, marginLeft: 44 },
+
+    subtopicRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 16,
+        paddingHorizontal: 4,
+        backgroundColor: C.white,
+    },
+    subtopicDot: {
+        width: 8, height: 8, borderRadius: 4,
+        backgroundColor: C.primary, marginRight: 14,
+    },
+    subtopicTextWrap: { flex: 1 },
+    subtopicLabel: { fontSize: 15, fontWeight: '700', color: C.text, lineHeight: 21 },
+    quizTag: {
+        fontSize: 10, fontWeight: '800', color: C.brown,
+        marginTop: 3, textTransform: 'uppercase', letterSpacing: 0.4,
+    },
+
+    // Shared
+    subjectBadge: {
+        alignSelf: 'flex-start',
+        backgroundColor: C.cream,
+        paddingHorizontal: 10, paddingVertical: 4,
+        borderRadius: 8, borderWidth: 1, borderColor: C.creamBorder,
+    },
+    subjectText: {
+        color: C.primaryDeep, fontSize: 10,
+        fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase',
+    },
+
+    // Note view
+    noteContent: { padding: 16, paddingBottom: 40 },
+    noteHeaderBlock: { marginBottom: 16 },
+    noteMainTitle: {
+        fontSize: 22, fontWeight: '900', color: C.text,
+        marginTop: 10, marginBottom: 8, lineHeight: 28,
+    },
+    refRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+    refText: { fontSize: 13, fontWeight: '700', color: C.textMuted },
     dateRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    dateText: { fontSize: 12, fontWeight: '700', color: '#475569' },
-    richContentContainer: { flex: 1, padding: 16, borderRadius: 20, marginBottom: 20 },
-    errorText: { fontWeight: '800' },
-    quizBtn: { marginTop: 20, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
-    quizBtnIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255, 255, 255, 0.2)', alignItems: 'center', justifyContent: 'center' },
-    quizBtnTitle: { color: '#FFF', fontSize: 16, fontWeight: '900' },
-    quizBtnSubtitle: { color: 'rgba(255, 255, 255, 0.8)', fontSize: 11, fontWeight: '700' }
+    dateText: { fontSize: 12, fontWeight: '700', color: C.textMuted },
+
+    noteCard: {
+        backgroundColor: C.white,
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: C.primaryBorder,
+        marginBottom: 16,
+    },
+
+    quizBtn: {
+        flexDirection: 'row', alignItems: 'center', gap: 12,
+        backgroundColor: C.primaryDeep,
+        borderRadius: 16, padding: 14, marginTop: 4,
+    },
+    quizBtnIcon: {
+        width: 42, height: 42, borderRadius: 11,
+        backgroundColor: 'rgba(255,255,255,0.18)',
+        alignItems: 'center', justifyContent: 'center',
+    },
+    quizBtnTitle: { color: C.white, fontSize: 15, fontWeight: '900' },
+    quizBtnSub: { color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: '700', marginTop: 2 },
 });

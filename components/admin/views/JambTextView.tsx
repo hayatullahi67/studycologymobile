@@ -10,9 +10,10 @@ interface JambTextViewProps {
     onAdd: (type: 'literature' | 'english') => void;
     onEdit: (id: string) => void;
     onDelete: (id: string) => void;
+    onBack?: () => void;
 }
 
-export function JambTextView({ onAdd, onEdit, onDelete }: JambTextViewProps) {
+export function JambTextView({ onAdd, onEdit, onDelete, onBack }: JambTextViewProps) {
     const { theme } = useAppStore();
     // const isDark = theme === 'dark';
     const colors = ThemeColors.light; // Force light mode for theme consistency
@@ -67,7 +68,14 @@ export function JambTextView({ onAdd, onEdit, onDelete }: JambTextViewProps) {
             <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
             <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#EFEBE9' }]}>
-                <View>
+                {onBack ? (
+                    <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+                        <Ionicons name="arrow-back" size={22} color="#4E342E" />
+                    </TouchableOpacity>
+                ) : (
+                    <View style={{ width: 44 }} />
+                )}
+                <View style={{ flex: 1, paddingHorizontal: 12 }}>
                     <Text style={[styles.headerTitle, { color: '#000000' }]}>JAMB Texts</Text>
                     <Text style={[styles.headerSub, { color: '#64748B' }]}>Reading materials for exams</Text>
                 </View>
@@ -193,6 +201,7 @@ const styles = StyleSheet.create({
     },
     headerTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
     headerSub: { fontSize: 13, marginTop: 2, fontWeight: '600' },
+    backBtn: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
     addBtn: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', elevation: 4 },
     tabContainer: {
         paddingHorizontal: 20,

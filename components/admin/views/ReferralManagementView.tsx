@@ -5,9 +5,10 @@ import { supabase } from '../../../services/supabaseDatabase';
 
 interface ReferralManagementViewProps {
     onNavigate?: (tab: string) => void;
+    onBack?: () => void;
 }
 
-export function ReferralManagementView({ onNavigate }: ReferralManagementViewProps) {
+export function ReferralManagementView({ onNavigate, onBack }: ReferralManagementViewProps) {
     const [activeSubTab, setActiveSubTab] = useState<'overview' | 'payouts' | 'referred_users'>('overview');
     const [loading, setLoading] = useState(true);
     const [referrers, setReferrers] = useState<any[]>([]);
@@ -272,6 +273,14 @@ export function ReferralManagementView({ onNavigate }: ReferralManagementViewPro
     return (
         <View style={styles.container}>
             <View style={styles.header}>
+                {onBack ? (
+                    <TouchableOpacity style={styles.backBtn} onPress={onBack}>
+                        <Ionicons name="arrow-back" size={24} color="#1E293B" />
+                        <Text style={styles.backBtnText}>Back</Text>
+                    </TouchableOpacity>
+                ) : (
+                    <View style={styles.backBtnPlaceholder} />
+                )}
                 <Text style={styles.title}>Referral Management</Text>
                 <View style={styles.subTabs}>
                     <TouchableOpacity

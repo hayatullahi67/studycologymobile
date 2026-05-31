@@ -1,13 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, RefreshControl } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+
+
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    View, Text, StyleSheet, ScrollView, TouchableOpacity,
+    TextInput, Alert, ActivityIndicator, RefreshControl
+} from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen, Header, Card } from '../components/Layout';
 import { useAppStore } from '../store/useAppStore';
 import { COLORS } from '../theme/colors';
 import * as supabaseDB from '../services/supabaseDatabase';
 import { ThemeColors } from '../theme/colors';
-
 import { UserCompetitionResultView } from '../components/UserCompetitionResultView';
 
 export function UtmeCompetitionScreen() {
@@ -18,11 +22,17 @@ export function UtmeCompetitionScreen() {
 
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [competition, setCompetition] = useState<any>(null); // Live competition
-    const [pastCompetitions, setPastCompetitions] = useState<any[]>([]); // Past competitions
+
+    // Active (live or upcoming) competition — becomes null once it ends
+    const [competition, setCompetition] = useState<any>(null);
+
+    // Only past competitions the user actually participated in
+    const [pastCompetitions, setPastCompetitions] = useState<any[]>([]);
+
     const [activeTab, setActiveTab] = useState<'live' | 'history'>('live');
     const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
     const [registration, setRegistration] = useState<any>(null);
+    const [userResult, setUserResult] = useState<any>(null);
     const [timeLeft, setTimeLeft] = useState(0);
     const [stats, setStats] = useState<any[]>([]);
 
@@ -32,60 +42,106 @@ export function UtmeCompetitionScreen() {
     const [phone, setPhone] = useState('');
     const [registering, setRegistering] = useState(false);
 
-    useEffect(() => {
-        loadCompetitionFlow();
-    }, [userProfile?.id]);
-
-    useEffect(() => {
-        if (!competition) return;
-
-        const interval = setInterval(() => {
-            const now = new Date().getTime();
-            const start = new Date(competition.start_time).getTime();
-            const diff = Math.floor((start - now) / 1000);
-            setTimeLeft(diff > 0 ? diff : 0);
-        }, 1000);
-
-        return () => clearInterval(interval);
-    }, [competition]);
-
-    const loadCompetitionFlow = async () => {
+    // ─── Load everything ──────────────────────────────────────────────────────
+    const loadCompetitionFlow = useCallback(async () => {
         try {
             setLoading(true);
             const comps = await supabaseDB.getCompetitions();
             const now = new Date();
 
-            // Find live or future
-            const liveOrFuture = comps.find(c => new Date(c.end_time) > now);
+            // ✅ Active = end_time is still in the future
+            const liveOrFuture = comps.find((c: any) => new Date(c.end_time) > now) || null;
             setCompetition(liveOrFuture);
 
-            // Find past competitions (all that have ended)
-            const past = comps.filter(c => new Date(c.end_time) <= now).sort((a, b) => new Date(b.end_time).getTime() - new Date(a.end_time).getTime());
-            setPastCompetitions(past);
+            if (liveOrFuture && userProfile?.id) {
+                // Registration check
+                const reg = await supabaseDB.checkCompetitionRegistration(liveOrFuture.id, userProfile.id);
+                setRegistration(reg);
+                if (reg) {
+                    setName(reg.full_name);
+                    setPhone(reg.phone);
+                    setEmail(reg.email);
+                }
 
-            if (liveOrFuture) {
-                // Check if user is registered
-                if (userProfile?.id) {
-                    const reg = await supabaseDB.checkCompetitionRegistration(liveOrFuture.id, userProfile.id);
-                    setRegistration(reg);
-                    if (reg) {
-                        setName(reg.full_name);
-                        setPhone(reg.phone);
-                        setEmail(reg.email);
+                // User result for active competition
+                const allResults = await supabaseDB.getCompetitionResults(liveOrFuture.id);
+                const myResult = allResults.find((r: any) => r.user_id === userProfile.id);
+                setUserResult(myResult || null);
+
+                // Top 5 leaderboard for live tab
+                setStats(allResults.slice(0, 5));
+            } else {
+                setRegistration(null);
+                setUserResult(null);
+                setStats([]);
+            }
+
+            // ✅ Past Leaderboard: ONLY competitions the user participated in
+            if (userProfile?.id) {
+                const endedComps = comps.filter((c: any) => new Date(c.end_time) <= now);
+                const participatedComps: any[] = [];
+
+                for (const comp of endedComps) {
+                    const results = await supabaseDB.getCompetitionResults(comp.id);
+                    const participated = results.some((r: any) => r.user_id === userProfile.id);
+                    if (participated) {
+                        participatedComps.push(comp);
                     }
                 }
 
-                // Load leaderboard for this comp
-                const results = await supabaseDB.getCompetitionResults(liveOrFuture.id);
-                setStats(results.slice(0, 5));
+                setPastCompetitions(
+                    participatedComps.sort(
+                        (a: any, b: any) =>
+                            new Date(b.end_time).getTime() - new Date(a.end_time).getTime()
+                    )
+                );
+            } else {
+                setPastCompetitions([]);
             }
         } catch (error) {
             console.error(error);
         } finally {
             setLoading(false);
         }
-    };
+    }, [userProfile?.id]);
 
+    // Initial load
+    useEffect(() => {
+        loadCompetitionFlow();
+    }, [loadCompetitionFlow]);
+
+    // Reload every time the screen is focused (e.g. coming back from exam)
+    useFocusEffect(
+        useCallback(() => {
+            loadCompetitionFlow();
+        }, [loadCompetitionFlow])
+    );
+
+    // ─── Countdown timer ──────────────────────────────────────────────────────
+    useEffect(() => {
+        if (!competition) return;
+
+        const interval = setInterval(() => {
+            const now = new Date().getTime();
+            const start = new Date(competition.start_time).getTime();
+            const end = new Date(competition.end_time).getTime();
+
+            // Count to start if not live yet, otherwise count to end
+            const target = now < start ? start : end;
+            const diff = Math.floor((target - now) / 1000);
+            setTimeLeft(diff > 0 ? diff : 0);
+
+            // Auto-refresh when competition ends
+            if (now >= end) {
+                clearInterval(interval);
+                loadCompetitionFlow();
+            }
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [competition, loadCompetitionFlow]);
+
+    // ─── Handlers ─────────────────────────────────────────────────────────────
     const handleRefresh = async () => {
         setRefreshing(true);
         await loadCompetitionFlow();
@@ -94,15 +150,13 @@ export function UtmeCompetitionScreen() {
 
     const handleRegister = async () => {
         if (!name.trim() || !phone.trim() || !email.trim()) {
-            Alert.alert("Hold on", "Please provide all details for the leaderboard.");
+            Alert.alert('Hold on', 'Please provide all details for the leaderboard.');
             return;
         }
-
         if (!userProfile?.id) {
-            Alert.alert("Error", "You must be logged in to register.");
+            Alert.alert('Error', 'You must be logged in to register.');
             return;
         }
-
         try {
             setRegistering(true);
             const reg = await supabaseDB.registerForCompetition({
@@ -110,67 +164,60 @@ export function UtmeCompetitionScreen() {
                 user_id: userProfile.id,
                 full_name: name,
                 phone: phone,
-                email: email
+                email: email,
             });
             setRegistration(reg);
-            Alert.alert("Success!", "You are now registered for the challenge.");
+            Alert.alert('Success!', 'You are now registered for the challenge.');
         } catch (error) {
-            Alert.alert("Error", "Failed to register. Please try again.");
+            Alert.alert('Error', 'Failed to register. Please try again.');
         } finally {
             setRegistering(false);
         }
     };
 
     const handleJoin = () => {
-        const now = new Date();
-        const start = new Date(competition.start_time);
-        const end = new Date(competition.end_time);
-
-        if (now < start) {
-            Alert.alert("Not Started", "Please wait for the timer to reach zero.");
+        if (!competition || !isCompetitionLive) {
+            Alert.alert('Not Available', 'The competition is not currently live.');
             return;
         }
-
-        if (now > end) {
-            Alert.alert("Expired", "This competition has ended.");
+        if (userResult) {
+            Alert.alert(
+                'Already Participated',
+                `You already completed this race with a score of ${userResult.score}/${totalQuestions}. You can only participate once per competition.`
+            );
             return;
         }
-
         if (!registration) {
-            Alert.alert("Wait", "Please register first.");
+            Alert.alert('Wait', 'Please register first.');
             return;
         }
-
         navigation.navigate('UtmeCompetitionExam', {
             competitionId: competition.id,
-            registrationId: registration.id
+            registrationId: registration.id,
         });
     };
 
     const formatTime = (seconds: number) => {
-        if (seconds <= 0) return "00:00:00";
+        if (seconds <= 0) return '00:00:00';
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = seconds % 60;
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
 
-    if (loading) {
-        return (
-            <View style={[styles.center, { backgroundColor: colors.background }]}>
-                <ActivityIndicator size="large" color={colors.primary} />
-            </View>
-        );
-    }
-
+    // ─── Derived state — computed BEFORE JSX so no undefined references ───────
+    const nowMs = Date.now();
     const isCompetitionLive = competition
-        ? new Date() >= new Date(competition.start_time) && new Date() <= new Date(competition.end_time)
+        ? nowMs >= new Date(competition.start_time).getTime() &&
+          nowMs <= new Date(competition.end_time).getTime()
         : false;
+    const totalQuestions = competition?.quiz?.length || 0;
 
+    // ─── Sub-render: history tab ──────────────────────────────────────────────
     const renderHistory = () => (
         <View style={styles.historyList}>
             {pastCompetitions.length > 0 ? (
-                pastCompetitions.map((item) => (
+                pastCompetitions.map((item: any) => (
                     <TouchableOpacity
                         key={item.id}
                         style={[styles.historyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
@@ -184,13 +231,19 @@ export function UtmeCompetitionScreen() {
                                 <Text style={[styles.historyBadgeText, { color: '#64748B' }]}>FINISHED</Text>
                             </View>
                         </View>
+
                         <Text style={[styles.historyTitle, { color: colors.text }]}>{item.title}</Text>
-                        <Text style={[styles.historySub, { color: colors.textSecondary }]} numberOfLines={1}>
+                        <Text
+                            style={[styles.historySub, { color: colors.textSecondary }]}
+                            numberOfLines={1}
+                        >
                             {item.description}
                         </Text>
 
-                        <View style={[styles.viewResultBtn, { marginTop: 12, flexDirection: 'row', alignItems: 'center' }]}>
-                            <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13, marginRight: 4 }}>View Leaderboard</Text>
+                        <View style={styles.viewResultBtn}>
+                            <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13, marginRight: 4 }}>
+                                View Leaderboard
+                            </Text>
                             <Ionicons name="arrow-forward" size={14} color={colors.primary} />
                         </View>
                     </TouchableOpacity>
@@ -199,11 +252,15 @@ export function UtmeCompetitionScreen() {
                 <View style={styles.emptyState}>
                     <Ionicons name="time-outline" size={60} color={colors.border} />
                     <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No past races found</Text>
+                    <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
+                        Competitions you participate in will appear here.
+                    </Text>
                 </View>
             )}
         </View>
     );
 
+    // ─── Full-screen leaderboard detail ───────────────────────────────────────
     if (selectedHistoryId) {
         return (
             <Screen scrollable={false} style={{ backgroundColor: colors.background }}>
@@ -215,29 +272,52 @@ export function UtmeCompetitionScreen() {
         );
     }
 
+    // ─── Loading ──────────────────────────────────────────────────────────────
+    if (loading) {
+        return (
+            <View style={[styles.center, { backgroundColor: colors.background }]}>
+                <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+        );
+    }
+
+    // ─── Main render ──────────────────────────────────────────────────────────
     return (
         <Screen scrollable={false} style={{ backgroundColor: '#FFF8F6' }}>
             <Header
-                title="UTME Competition"
+                title="Exam Challenge"
                 onBack={() => navigation.goBack()}
                 style={{ backgroundColor: '#FFF8F6', borderBottomColor: '#FFF8F6' }}
                 titleStyle={{ color: '#000000' }}
                 iconColor="#000000"
             />
 
-            {/* Tabs */}
+            {/* ── Tabs ── */}
             <View style={[styles.tabContainer, { backgroundColor: colors.surface }]}>
                 <TouchableOpacity
-                    style={[styles.tab, activeTab === 'live' && styles.activeTab, activeTab === 'live' && { borderBottomColor: colors.primary }]}
+                    style={[
+                        styles.tab,
+                        activeTab === 'live' && styles.activeTab,
+                        activeTab === 'live' && { borderBottomColor: colors.primary },
+                    ]}
                     onPress={() => setActiveTab('live')}
                 >
-                    <Text style={[styles.tabText, { color: activeTab === 'live' ? colors.primary : colors.textSecondary }]}>Live Challenge</Text>
+                    <Text style={[styles.tabText, { color: activeTab === 'live' ? colors.primary : colors.textSecondary }]}>
+                        Live Challenge
+                    </Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
-                    style={[styles.tab, activeTab === 'history' && styles.activeTab, activeTab === 'history' && { borderBottomColor: colors.primary }]}
+                    style={[
+                        styles.tab,
+                        activeTab === 'history' && styles.activeTab,
+                        activeTab === 'history' && { borderBottomColor: colors.primary },
+                    ]}
                     onPress={() => setActiveTab('history')}
                 >
-                    <Text style={[styles.tabText, { color: activeTab === 'history' ? colors.primary : colors.textSecondary }]}>Past History</Text>
+                    <Text style={[styles.tabText, { color: activeTab === 'history' ? colors.primary : colors.textSecondary }]}>
+                        Past Leaderboard
+                    </Text>
                 </TouchableOpacity>
             </View>
 
@@ -246,22 +326,30 @@ export function UtmeCompetitionScreen() {
                 showsVerticalScrollIndicator={false}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
             >
-                {activeTab === 'history' ? renderHistory() : (
+                {/* ══ HISTORY TAB ══ */}
+                {activeTab === 'history' ? (
+                    renderHistory()
+                ) : (
+                    /* ══ LIVE TAB ══ */
                     !competition ? (
                         <View style={[styles.center, { padding: 40 }]}>
                             <Ionicons name="trophy-outline" size={80} color={colors.textSecondary + '40'} />
-                            <Text style={[styles.noCompText, { color: colors.text }]}>No competitions scheduled right now.</Text>
-                            <Text style={[styles.noCompSub, { color: colors.textSecondary }]}>Check back later for upcoming national challenges!</Text>
+                            <Text style={[styles.noCompText, { color: colors.text }]}>
+                                No competitions scheduled right now.
+                            </Text>
+                            <Text style={[styles.noCompSub, { color: colors.textSecondary }]}>
+                                Check back later for upcoming national challenges!
+                            </Text>
                         </View>
                     ) : (
                         <>
-                            {/* Countdown Section */}
+                            {/* Countdown */}
                             <View style={styles.countdownContainer}>
                                 <Text style={[styles.countdownLabel, { color: colors.textSecondary }]}>
                                     {isCompetitionLive ? 'CHALLENGE IS LIVE!' : 'STARTS IN'}
                                 </Text>
                                 <Text style={[styles.timer, { color: isCompetitionLive ? '#10B981' : COLORS.rose[600] }]}>
-                                    {isCompetitionLive ? '00:00:00' : formatTime(timeLeft)}
+                                    {formatTime(timeLeft)}
                                 </Text>
                                 <Text style={[styles.eventTime, { color: colors.textSecondary }]}>
                                     {new Date(competition.start_time).toLocaleString('en-US', {
@@ -269,29 +357,42 @@ export function UtmeCompetitionScreen() {
                                         month: 'short',
                                         day: 'numeric',
                                         hour: 'numeric',
-                                        minute: '2-digit'
+                                        minute: '2-digit',
                                     })}
                                 </Text>
-
                                 <View style={[styles.compInfo, { backgroundColor: colors.surface }]}>
                                     <Text style={[styles.compTitle, { color: colors.text }]}>{competition.title}</Text>
-                                    <Text style={[styles.compDesc, { color: colors.textSecondary }]}>{competition.description}</Text>
+                                    <Text style={[styles.compDesc, { color: colors.textSecondary }]}>
+                                        {competition.description}
+                                    </Text>
                                 </View>
                             </View>
 
-                            {/* Registration Form / Status */}
+                            {/* Registration / Status */}
                             {!isCompetitionLive && !registration ? (
+                                // Locked — not live yet, not registered
                                 <View style={[styles.waitingBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                                     <Ionicons name="lock-closed-outline" size={40} color={colors.textSecondary} />
-                                    <Text style={[styles.waitingTitle, { color: colors.text }]}>Doors Open at {new Date(competition.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                                    <Text style={[styles.waitingSub, { color: colors.textSecondary }]}>The entry form will unlock automatically when the timer hits zero.</Text>
+                                    <Text style={[styles.waitingTitle, { color: colors.text }]}>
+                                        Doors Open at{' '}
+                                        {new Date(competition.start_time).toLocaleTimeString([], {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                        })}
+                                    </Text>
+                                    <Text style={[styles.waitingSub, { color: colors.textSecondary }]}>
+                                        The entry form will unlock automatically when the timer hits zero.
+                                    </Text>
                                 </View>
                             ) : (
                                 <Card style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                                     {!registration ? (
+                                        // Registration form (unlocked once live)
                                         <>
                                             <Text style={[styles.formTitle, { color: colors.text }]}>Entry Registration</Text>
-                                            <Text style={[styles.formSub, { color: colors.textSecondary }]}>Join the race for real-world prizes and recognition.</Text>
+                                            <Text style={[styles.formSub, { color: colors.textSecondary }]}>
+                                                Join the race for real-world prizes and recognition.
+                                            </Text>
 
                                             <View style={styles.inputGroup}>
                                                 <Text style={[styles.label, { color: colors.text }]}>Full Name</Text>
@@ -337,54 +438,113 @@ export function UtmeCompetitionScreen() {
                                                 {registering ? (
                                                     <ActivityIndicator color="#FFF" />
                                                 ) : (
-                                                    <Text style={styles.btnText}>Start Race</Text>
+                                                    <Text style={styles.btnText}>Register Now</Text>
                                                 )}
                                             </TouchableOpacity>
                                         </>
                                     ) : (
+                                        // Registered — show join or already-done state
                                         <View style={styles.regStatus}>
                                             <View style={[styles.checkCircle, { backgroundColor: '#10B98120' }]}>
                                                 <Ionicons name="checkmark-circle" size={48} color="#10B981" />
                                             </View>
-                                            <Text style={[styles.regOkTitle, { color: colors.text }]}>You're In!</Text>
+                                            {/* <Text style={[styles.regOkTitle, { color: colors.text }]}>You're In!</Text>
                                             <Text style={[styles.regOkSub, { color: colors.textSecondary }]}>
                                                 Good luck, {registration.full_name.split(' ')[0]}! Enter the race venue below to begin.
-                                            </Text>
+                                            </Text> */}
 
-                                            <TouchableOpacity
-                                                style={[
-                                                    styles.joinBtn,
-                                                    { backgroundColor: isCompetitionLive ? COLORS.rose[600] : colors.border },
-                                                    !isCompetitionLive && { opacity: 0.5 }
-                                                ]}
-                                                onPress={handleJoin}
-                                                disabled={!isCompetitionLive}
-                                            >
-                                                <Text style={styles.btnText}>
-                                                    {isCompetitionLive ? "Join Race Now" : "Race Concluded"}
-                                                </Text>
-                                            </TouchableOpacity>
+                                            {userResult ? (
+                                                // Already submitted — show congrats + inline leaderboard
+                                                <View style={styles.completedWrap}>
+                                                    <View style={[styles.congrats, { backgroundColor: '#10B98115', borderColor: '#10B98140' }]}>
+                                                        <Ionicons name="trophy" size={32} color="#10B981" />
+                                                        <Text style={[styles.congratsTitle, { color: '#10B981' }]}>Congratulations! 🎉</Text>
+                                                        <Text style={[styles.congratsSub, { color: colors.textSecondary }]}>
+                                                            You have successfully completed this challenge.
+                                                        </Text>
+                                                        <Text style={[styles.congratsScore, { color: colors.text }]}>
+                                                            Your score: {userResult.score}/{totalQuestions}
+                                                        </Text>
+                                                    </View>
+
+                                                    {stats.length > 0 && (
+                                                        <View style={styles.inlineLeaderboard}>
+                                                            <Text style={[styles.leaderboardTitle, { color: colors.textSecondary }]}>
+                                                                LEADERBOARD
+                                                            </Text>
+                                                            {stats.map((item: any, index: number) => {
+                                                                const isMe = userProfile?.id && item.user_id === userProfile.id;
+                                                                return (
+                                                                    <View
+                                                                        key={item.id}
+                                                                        style={[
+                                                                            styles.leaderItem,
+                                                                            { backgroundColor: isMe ? '#FFF3E0' : colors.background, borderColor: isMe ? '#864b03' : colors.border }
+                                                                        ]}
+                                                                    >
+                                                                        <View style={styles.leaderLeft}>
+                                                                            <Text style={[styles.rankText, { color: index < 3 ? '#D97706' : colors.textSecondary }]}>
+                                                                                #{index + 1}
+                                                                            </Text>
+                                                                            <Text style={[styles.leaderName, { color: isMe ? '#864b03' : colors.text }]}>
+                                                                                {item.registration?.full_name}{isMe ? ' (You)' : ''}
+                                                                            </Text>
+                                                                        </View>
+                                                                        <Text style={[styles.leaderScore, { color: index === 0 ? '#D97706' : colors.primary }]}>
+                                                                            {item.score}/{totalQuestions}
+                                                                        </Text>
+                                                                    </View>
+                                                                );
+                                                            })}
+                                                        </View>
+                                                    )}
+                                                </View>
+                                            ) : (
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.joinBtn,
+                                                        { backgroundColor: isCompetitionLive ? COLORS.rose[600] : colors.border },
+                                                        !isCompetitionLive && { opacity: 0.5 },
+                                                    ]}
+                                                    onPress={handleJoin}
+                                                    disabled={!isCompetitionLive}
+                                                >
+                                                    <Text style={styles.btnText}>
+                                                        {isCompetitionLive ? 'Join Race Now' : 'Waiting for Start...'}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            )}
                                         </View>
                                     )}
                                 </Card>
                             )}
 
-                            {/* Leaderboard */}
-                            {stats.length > 0 && (
+                            {/* Real-time leaderboard — only show if user hasn't completed yet */}
+                            {stats.length > 0 && !userResult && (
                                 <>
                                     <View style={styles.sectionHeader}>
-                                        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Real-time Standings</Text>
+                                        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+                                            Real-time Standings
+                                        </Text>
                                     </View>
-
                                     <View style={styles.leaderboard}>
-                                        {stats.map((item, index) => (
-                                            <View key={item.id} style={[styles.leaderItem, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                                        {stats.map((item: any, index: number) => (
+                                            <View
+                                                key={item.id}
+                                                style={[styles.leaderItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                                            >
                                                 <View style={styles.leaderLeft}>
-                                                    <Text style={[styles.rankText, { color: colors.textSecondary }]}>#{index + 1}</Text>
-                                                    <Text style={[styles.leaderName, { color: colors.text }]}>{item.registration?.full_name}</Text>
+                                                    <Text style={[styles.rankText, { color: colors.textSecondary }]}>
+                                                        #{index + 1}
+                                                    </Text>
+                                                    <Text style={[styles.leaderName, { color: colors.text }]}>
+                                                        {item.registration?.full_name}
+                                                    </Text>
                                                 </View>
                                                 <View style={styles.leaderRight}>
-                                                    <Text style={[styles.leaderScore, { color: colors.primary }]}>{item.score}</Text>
+                                                    <Text style={[styles.leaderScore, { color: colors.primary }]}>
+                                                        {item.score}/{totalQuestions}
+                                                    </Text>
                                                 </View>
                                             </View>
                                         ))}
@@ -411,7 +571,7 @@ const styles = StyleSheet.create({
     compInfo: { padding: 20, borderRadius: 24, width: '100%', alignItems: 'center' },
     compTitle: { fontSize: 18, fontWeight: '900', textAlign: 'center', marginBottom: 4 },
     compDesc: { fontSize: 13, fontWeight: '500', textAlign: 'center', opacity: 0.8 },
-    formCard: { padding: 24, borderRadius: 32, borderWidth: 1 },
+    formCard: { padding: 24, borderRadius: 32, borderWidth: 1, marginTop: 8 },
     formTitle: { fontSize: 24, fontWeight: '900', marginBottom: 4 },
     formSub: { fontSize: 13, fontWeight: '600', marginBottom: 24 },
     inputGroup: { marginBottom: 16 },
@@ -424,6 +584,16 @@ const styles = StyleSheet.create({
     checkCircle: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
     regOkTitle: { fontSize: 22, fontWeight: '900', marginBottom: 8 },
     regOkSub: { fontSize: 14, fontWeight: '600', textAlign: 'center', lineHeight: 22, paddingHorizontal: 10 },
+    doneBox: { marginTop: 20, width: '100%', borderRadius: 18, borderWidth: 1.5, padding: 20, alignItems: 'center', gap: 6 },
+    doneTitle: { fontSize: 18, fontWeight: '900', marginTop: 4 },
+    doneSub: { fontSize: 14, fontWeight: '700' },
+    completedWrap: { width: '100%', marginTop: 16, gap: 16 },
+    congrats: { borderRadius: 18, borderWidth: 1.5, padding: 20, alignItems: 'center', gap: 8 },
+    congratsTitle: { fontSize: 20, fontWeight: '900', marginTop: 4 },
+    congratsSub: { fontSize: 13, fontWeight: '600', textAlign: 'center', lineHeight: 20 },
+    congratsScore: { fontSize: 16, fontWeight: '900', marginTop: 4 },
+    inlineLeaderboard: { gap: 8 },
+    leaderboardTitle: { fontSize: 10, fontWeight: '900', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 4 },
     sectionHeader: { marginTop: 30, marginBottom: 16 },
     sectionTitle: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1.5 },
     leaderboard: { gap: 10 },
@@ -438,7 +608,7 @@ const styles = StyleSheet.create({
     waitingBox: { padding: 32, borderRadius: 32, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
     waitingTitle: { fontSize: 18, fontWeight: '900', marginTop: 16, textAlign: 'center' },
     waitingSub: { fontSize: 13, fontWeight: '600', marginTop: 8, textAlign: 'center', lineHeight: 20 },
-    tabContainer: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)', marginBottom: 0 },
+    tabContainer: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
     tab: { flex: 1, paddingVertical: 14, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
     activeTab: { borderBottomWidth: 2 },
     tabText: { fontSize: 13, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
@@ -452,5 +622,6 @@ const styles = StyleSheet.create({
     historySub: { fontSize: 13, fontWeight: '500' },
     emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80 },
     emptyText: { marginTop: 16, fontSize: 16, fontWeight: '700' },
-    viewResultBtn: { marginTop: 12, flexDirection: 'row', alignItems: 'center' }
+    emptySub: { marginTop: 6, fontSize: 13, fontWeight: '500', textAlign: 'center', opacity: 0.7 },
+    viewResultBtn: { marginTop: 12, flexDirection: 'row', alignItems: 'center' },
 });

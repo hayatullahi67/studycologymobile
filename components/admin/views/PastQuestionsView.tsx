@@ -110,7 +110,7 @@ export function PastQuestionsView({ onSelectPaper }: PastQuestionsViewProps) {
     const renderHeader = () => (
         <View style={styles.header}>
             <View>
-                <Text style={[styles.headerTitle, { color: '#000000' }]}>Question Bank</Text>
+                {/* <Text style={[styles.headerTitle, { color: '#000000' }]}>Question Bank</Text> */}
                 <Text style={[styles.headerSub, { color: '#64748B' }]}>Managed exam repositories</Text>
             </View>
             <TouchableOpacity onPress={loadPapers} style={[styles.refreshBtn, { backgroundColor: '#FFFFFF', borderColor: '#D7CCC8' }]}>

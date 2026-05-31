@@ -62,13 +62,13 @@ export const initLocalDatabase = async () => {
                 CREATE TABLE IF NOT EXISTS exam_years (id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, year INTEGER NOT NULL, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS subjects (id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, exam_year_id TEXT NOT NULL, name TEXT NOT NULL, question_count INTEGER DEFAULT 0, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, exam_year_id TEXT NOT NULL, subject_id TEXT NOT NULL, question TEXT NOT NULL, option_a TEXT NOT NULL, option_b TEXT NOT NULL, option_c TEXT NOT NULL, option_d TEXT NOT NULL, correct_answer TEXT NOT NULL, explanation TEXT, image_url TEXT, created_at TEXT);
-                CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, subject TEXT, topic TEXT, content TEXT NOT NULL, quiz TEXT, created_at TEXT);
+                CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, subject_id TEXT, subject TEXT, topic_id TEXT, topic TEXT, subtopic_id TEXT, subtopic TEXT, content TEXT NOT NULL, quiz TEXT, is_default INTEGER DEFAULT 0, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS pdf_resources (id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, exam_year_id TEXT NOT NULL, subject_id TEXT NOT NULL, file_url TEXT NOT NULL, file_name TEXT NOT NULL, size_kb REAL, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS exam_results (id TEXT PRIMARY KEY, total_score REAL, total_questions INTEGER, total_correct INTEGER, total_wrong INTEGER, time_spent INTEGER, date TEXT, mode TEXT, subject_id TEXT, subject_results TEXT, user_answers TEXT);
-                CREATE TABLE IF NOT EXISTS jamb_texts (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, author TEXT, thumbnail_url TEXT, category TEXT, content TEXT NOT NULL, quiz TEXT, created_at TEXT);
+                CREATE TABLE IF NOT EXISTS jamb_texts (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, author TEXT, thumbnail_url TEXT, category TEXT, content TEXT NOT NULL, quiz TEXT, subheading_id TEXT, subheading TEXT, is_default INTEGER DEFAULT 0, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS sync_status (key TEXT PRIMARY KEY, last_sync TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, name TEXT, role TEXT NOT NULL DEFAULT 'user', is_paid INTEGER DEFAULT 0, expiry_date TEXT, created_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, name TEXT, role TEXT NOT NULL DEFAULT 'user', assigned_view TEXT, is_paid INTEGER DEFAULT 0, expiry_date TEXT, created_at TEXT NOT NULL, active_premium_device_id TEXT, active_premium_device_name TEXT, current_device_id TEXT, current_device_name TEXT, current_device_has_premium INTEGER DEFAULT 0, premium_revoked_permanently INTEGER DEFAULT 0, device_access_state TEXT, premium_checked_at TEXT, premium_offline_valid_until TEXT);
                 CREATE TABLE IF NOT EXISTS note_quiz_results (id TEXT PRIMARY KEY, note_id TEXT, score INTEGER, total INTEGER, date TEXT);
                 CREATE TABLE IF NOT EXISTS jamb_text_quiz_results (id TEXT PRIMARY KEY, text_id TEXT, score INTEGER, total INTEGER, date TEXT);
                 CREATE TABLE IF NOT EXISTS note_read_progress (note_id TEXT PRIMARY KEY, progress REAL DEFAULT 0, updated_at TEXT);
@@ -95,6 +95,27 @@ export const initLocalDatabase = async () => {
                 // Column likely already exists or table doesn't exist yet (handled by CREATE TABLE above)
             }
 
+            const noteColumnMigrations = [
+                'ALTER TABLE notes ADD COLUMN subject_id TEXT;',
+                'ALTER TABLE notes ADD COLUMN topic_id TEXT;',
+                'ALTER TABLE notes ADD COLUMN subtopic_id TEXT;',
+                'ALTER TABLE notes ADD COLUMN subtopic TEXT;',
+                'ALTER TABLE notes ADD COLUMN is_default INTEGER DEFAULT 0;',
+            ];
+            for (const migration of noteColumnMigrations) {
+                try {
+                    await database.execAsync(migration);
+                } catch (e) {
+                    // Column likely already exists.
+                }
+            }
+
+            try {
+                await database.execAsync('ALTER TABLE users ADD COLUMN assigned_view TEXT;');
+            } catch (e) {
+                // Column likely already exists or users table is newly created.
+            }
+
             // Migration: Add columns to jamb_texts
             try {
                 await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN quiz TEXT;');
@@ -104,7 +125,16 @@ export const initLocalDatabase = async () => {
             } catch (e) { }
             try {
                 await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN thumbnail_url TEXT;');
-                console.log('[DB] Migration: Added new columns to jamb_texts table.');
+            } catch (e) { }
+            try {
+                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN subheading_id TEXT;');
+            } catch (e) { }
+            try {
+                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN subheading TEXT;');
+            } catch (e) { }
+            try {
+                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN is_default INTEGER DEFAULT 0;');
+                console.log('[DB] Migration: Added new columns and subheading support to jamb_texts table.');
             } catch (e) {
                 // Column likely already exists
             }
@@ -115,6 +145,26 @@ export const initLocalDatabase = async () => {
                 console.log('[DB] Migration: Added subscription columns to users table.');
             } catch (e) {
                 // Column likely already exists
+            }
+
+            const userColumnMigrations = [
+                'ALTER TABLE users ADD COLUMN active_premium_device_id TEXT;',
+                'ALTER TABLE users ADD COLUMN active_premium_device_name TEXT;',
+                'ALTER TABLE users ADD COLUMN current_device_id TEXT;',
+                'ALTER TABLE users ADD COLUMN current_device_name TEXT;',
+                'ALTER TABLE users ADD COLUMN current_device_has_premium INTEGER DEFAULT 0;',
+                'ALTER TABLE users ADD COLUMN premium_revoked_permanently INTEGER DEFAULT 0;',
+                'ALTER TABLE users ADD COLUMN device_access_state TEXT;',
+                'ALTER TABLE users ADD COLUMN premium_checked_at TEXT;',
+                'ALTER TABLE users ADD COLUMN premium_offline_valid_until TEXT;',
+            ];
+
+            for (const statement of userColumnMigrations) {
+                try {
+                    await database.execAsync(statement);
+                } catch (e) {
+                    // Column likely already exists
+                }
             }
 
             db = database;
@@ -214,8 +264,20 @@ export const saveNotes = async (notes: any[]) => {
     return enqueueDbOperation(async () => {
         const database = await initLocalDatabase();
         for (const n of notes) {
-            await database.runAsync('INSERT OR REPLACE INTO notes (id, title, subject, topic, content, quiz, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                clean(n.id), clean(n.title), clean(n.subject), clean(n.topic), clean(n.content), clean(typeof n.quiz === 'string' ? n.quiz : JSON.stringify(n.quiz)), clean(n.created_at));
+            await database.runAsync('INSERT OR REPLACE INTO notes (id, title, subject_id, subject, topic_id, topic, subtopic_id, subtopic, content, quiz, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                clean(n.id),
+                clean(n.title),
+                clean(n.subject_id || n.subjectId),
+                clean(n.subject),
+                clean(n.topic_id || n.topicId),
+                clean(n.topic),
+                clean(n.subtopic_id || n.subtopicId),
+                clean(n.subtopic),
+                clean(n.content),
+                clean(typeof n.quiz === 'string' ? n.quiz : JSON.stringify(n.quiz)),
+                n.is_default ? 1 : 0,
+                clean(n.created_at)
+            );
         }
     });
 };
@@ -233,8 +295,20 @@ export const saveJambTexts = async (texts: any[]) => {
     return enqueueDbOperation(async () => {
         const database = await initLocalDatabase();
         for (const t of texts) {
-            await database.runAsync('INSERT OR REPLACE INTO jamb_texts (id, type, title, author, thumbnail_url, category, content, quiz, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                clean(t.id), clean(t.type), clean(t.title), clean(t.author), clean(t.thumbnail_url || t.thumbnailUrl), clean(t.category), clean(t.content), clean(typeof t.quiz === 'string' ? t.quiz : JSON.stringify(t.quiz)), clean(t.created_at));
+            await database.runAsync('INSERT OR REPLACE INTO jamb_texts (id, type, title, author, thumbnail_url, category, content, quiz, subheading_id, subheading, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                clean(t.id),
+                clean(t.type),
+                clean(t.title),
+                clean(t.author),
+                clean(t.thumbnail_url || t.thumbnailUrl),
+                clean(t.category),
+                clean(t.content),
+                clean(typeof t.quiz === 'string' ? t.quiz : JSON.stringify(t.quiz)),
+                clean(t.subheading_id || t.subheadingId),
+                clean(t.subheading),
+                t.is_default ? 1 : 0,
+                clean(t.created_at)
+            );
         }
     });
 };
@@ -290,6 +364,7 @@ export const getLocalNotes = async () => {
     const rows = await database.getAllAsync('SELECT * FROM notes ORDER BY created_at DESC');
     return rows.map((r: any) => ({
         ...r,
+        is_default: Boolean(r.is_default),
         quiz: r.quiz ? JSON.parse(r.quiz) : null
     }));
 };
@@ -299,6 +374,9 @@ export const getNoteByIdLocal = async (id: string) => {
     const row: any = await database.getFirstAsync('SELECT * FROM notes WHERE id = ?', id);
     if (row && row.quiz) {
         row.quiz = JSON.parse(row.quiz);
+    }
+    if (row) {
+        row.is_default = Boolean(row.is_default);
     }
     return row;
 };
@@ -561,7 +639,18 @@ export const getQuestionsByIds = async (ids: string[]) => {
 export const getLocalJambTexts = async (type: 'literature' | 'english') => {
     const database = await initLocalDatabase();
     const rows = await database.getAllAsync('SELECT * FROM jamb_texts WHERE type = ? ORDER BY category ASC, title ASC', [type]);
-    return rows.map((r: any) => ({
+    
+    // Group and keep unique books by title (case-insensitive)
+    const uniqueMap = new Map<string, any>();
+    rows.forEach((r: any) => {
+        const key = (r.title || '').trim().toLowerCase();
+        if (!uniqueMap.has(key) || r.is_default) {
+            uniqueMap.set(key, r);
+        }
+    });
+    const uniqueRows = Array.from(uniqueMap.values());
+
+    return uniqueRows.map((r: any) => ({
         ...r,
         quiz: r.quiz ? JSON.parse(r.quiz) : null
     }));
@@ -590,6 +679,35 @@ export const getSettings = async () => {
         settings[r.key] = r.value;
     });
     return settings;
+};
+
+export const clearAllLocalData = async () => {
+    return enqueueDbOperation(async () => {
+        const database = await initLocalDatabase();
+        await database.execAsync(`
+            DELETE FROM exam_results;
+            DELETE FROM note_quiz_results;
+            DELETE FROM jamb_text_quiz_results;
+            DELETE FROM note_read_progress;
+            DELETE FROM pdf_resources;
+            DELETE FROM notes;
+            DELETE FROM questions;
+            DELETE FROM subjects;
+            DELETE FROM exam_years;
+            DELETE FROM exams;
+            DELETE FROM jamb_texts;
+            DELETE FROM career_courses;
+            DELETE FROM app_settings;
+            DELETE FROM sync_status;
+            DELETE FROM users;
+        `);
+    });
+};
+
+export const getPdfResourceSubjectIds = async () => {
+    const database = await initLocalDatabase();
+    const rows = await database.getAllAsync('SELECT DISTINCT subject_id FROM pdf_resources WHERE subject_id IS NOT NULL');
+    return rows.map((row: any) => row.subject_id).filter(Boolean);
 };
 
 /**
@@ -648,12 +766,29 @@ export const getMaxQuestionId = async () => {
     return res?.maxId || null;
 };
 
-export const saveUserLocal = async (user: { id: string, email: string, password: string, name?: string, role: string, is_paid?: number, expiry_date?: string, created_at: string }) => {
+export const saveUserLocal = async (user: { id: string, email: string, password: string, name?: string, role: string, assigned_view?: string | null, is_paid?: number, expiry_date?: string, created_at: string, active_premium_device_id?: string | null, active_premium_device_name?: string | null, current_device_id?: string | null, current_device_name?: string | null, current_device_has_premium?: number | boolean | null, premium_revoked_permanently?: number | boolean | null, device_access_state?: string | null, premium_checked_at?: string | null, premium_offline_valid_until?: string | null }) => {
     return enqueueDbOperation(async () => {
         const database = await initLocalDatabase();
         await database.runAsync(
-            'INSERT OR REPLACE INTO users (id, email, password, name, role, is_paid, expiry_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            user.id, user.email.toLowerCase(), user.password, user.name || null, user.role, user.is_paid || 0, user.expiry_date || null, user.created_at
+            'INSERT OR REPLACE INTO users (id, email, password, name, role, assigned_view, is_paid, expiry_date, created_at, active_premium_device_id, active_premium_device_name, current_device_id, current_device_name, current_device_has_premium, premium_revoked_permanently, device_access_state, premium_checked_at, premium_offline_valid_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            user.id,
+            user.email.toLowerCase(),
+            user.password,
+            user.name || null,
+            user.role,
+            user.assigned_view || null,
+            user.is_paid || 0,
+            user.expiry_date || null,
+            user.created_at,
+            user.active_premium_device_id || null,
+            user.active_premium_device_name || null,
+            user.current_device_id || null,
+            user.current_device_name || null,
+            user.current_device_has_premium ? 1 : 0,
+            user.premium_revoked_permanently ? 1 : 0,
+            user.device_access_state || null,
+            user.premium_checked_at || null,
+            user.premium_offline_valid_until || null
         );
     });
 };

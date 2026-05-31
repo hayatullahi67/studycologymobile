@@ -45,12 +45,13 @@ export function SignUpScreen() {
                 password: password,
                 name: name,
                 role: profile.role,
+                assigned_view: profile.assigned_view || null,
                 is_paid: 0,
                 created_at: profile.created_at
             });
 
             const { setUserProfile } = useAppStore.getState();
-            setUserProfile(profile);
+            setUserProfile({ ...profile, password });
 
             Alert.alert('Success', 'Account created successfully!');
             navigation.navigate('MainTabs');

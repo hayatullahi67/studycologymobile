@@ -64,9 +64,15 @@ export interface QuizQuestion {
 export interface Note {
   id: string;
   subjectId: string;
+  subject_id?: string;
+  subject?: string;
   title: string;
   content: string;
+  topic_id?: string;
   topic?: string;
+  subtopic_id?: string;
+  subtopic?: string;
+  is_default?: boolean;
   date: string;
   created_at: string;
   quiz?: QuizQuestion[];
