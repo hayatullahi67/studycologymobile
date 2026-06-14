@@ -111,6 +111,7 @@ export function RichTextEditor({
                     [{ 'color': [] }, { 'background': [] }],
                     [{ 'list': 'ordered'}, { 'list': 'bullet' }],
                     [{ 'align': [] }],
+                    ['link', 'image'],
                     ['clean']
                 ]
             }
