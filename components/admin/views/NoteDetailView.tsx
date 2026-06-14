@@ -19,6 +19,7 @@ export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: No
     const [note, setNote] = useState<any>(null);
     const [topicNotes, setTopicNotes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [audioLoading, setAudioLoading] = useState<string | null>(null);
     const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
     const [playbackStatus, setPlaybackStatus] = useState({ position: 0, duration: 1, isPlaying: false });
     const soundRef = useRef<Audio.Sound | null>(null);
@@ -65,14 +66,13 @@ export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: No
 
   const playAudio = async (url: string, id: string) => {
     try {
-        if (!url || url === 'null' || url.trim() === '') {
+        if (!url || url === 'null' || !url.trim()) {
             console.warn('[Audio] Attempted to play invalid URL:', url);
             return;
         }
 
-        // ✅ Handle pause/resume FIRST before doing anything with the URL
         if (activeAudioId === id && soundRef.current) {
-            const status = await soundRef.current.getStatusAsync();
+            const status: any = await soundRef.current.getStatusAsync();
             if (status.isLoaded) {
                 status.isPlaying 
                     ? await soundRef.current.pauseAsync() 
@@ -81,11 +81,27 @@ export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: No
             return;
         }
 
-        // Unload previous sound
         if (soundRef.current) {
             await soundRef.current.unloadAsync();
             soundRef.current = null;
         }
+
+        setAudioLoading(id);
+
+        // Resolving URL: Handle both stored absolute URLs and relative Storage paths
+        let audioUri = url.trim();
+        if (!audioUri.startsWith('http')) {
+            const { data } = supabaseDB.supabase.storage
+                .from('voice-notes')
+                .getPublicUrl(audioUri);
+            
+            if (data?.publicUrl) {
+                audioUri = data.publicUrl;
+            }
+        }
+
+        // Log resolved URI for debugging if 400 error persists on specific files
+        console.log('[Audio] Stream initiated for:', audioUri);
 
         await Audio.setAudioModeAsync({
             allowsRecordingIOS: false,
@@ -94,10 +110,6 @@ export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: No
             shouldDuckAndroid: true,
             playThroughEarpieceAndroid: false,
         });
-
-        // ✅ Use the URL directly — no supabase client needed
-        const audioUri = url.trim();
-        console.log('[Audio] Playing URI:', audioUri); // keep this for debugging
 
         const { sound: newSound } = await Audio.Sound.createAsync(
             { uri: audioUri },
@@ -117,7 +129,9 @@ export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: No
         setActiveAudioId(id);
     } catch (err) {
         console.error('[Audio] Playback failed:', err);
-        Alert.alert('Error', 'Could not play audio. Please try again.');
+        Alert.alert('Playback Error', 'The voice explanation could not be loaded. Please check your connection or file permissions.');
+    } finally {
+        setAudioLoading(null);
     }
 };
 
@@ -383,9 +397,17 @@ export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: No
                             <Text style={styles.noteContentTitle}>{note?.subtopic || note?.title || 'Selected Subtopic'}</Text>
                             
                             {note?.audio_url && (
-                                <View style={[styles.detailAudioContainer, { backgroundColor: '#FFF3E0', borderColor: '#E7E0D7' }]}>
-                                    <TouchableOpacity style={[styles.detailPlayBtn, { backgroundColor: '#864b03' }]} onPress={() => playAudio(note.audio_url, note.id)}>
-                                        <Ionicons name={activeAudioId === note.id && playbackStatus.isPlaying ? "pause" : "play"} size={20} color="#FFF" />
+                                <View style={[styles.detailAudioContainer, { backgroundColor: '#FFF3E0', borderColor: '#E7E0D7', opacity: audioLoading === note.id ? 0.7 : 1 }]}>
+                                    <TouchableOpacity 
+                                        style={[styles.detailPlayBtn, { backgroundColor: '#864b03' }]} 
+                                        onPress={() => playAudio(note.audio_url, note.id)}
+                                        disabled={audioLoading === note.id}
+                                    >
+                                        {audioLoading === note.id ? (
+                                            <ActivityIndicator size="small" color="#FFF" />
+                                        ) : (
+                                            <Ionicons name={activeAudioId === note.id && playbackStatus.isPlaying ? "pause" : "play"} size={20} color="#FFF" />
+                                        )}
                                     </TouchableOpacity>
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.detailAudioText}>Voice Explanation</Text>
