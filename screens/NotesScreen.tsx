@@ -119,11 +119,22 @@ export function NotesScreen() {
     });
 
     return Array.from(groups.values())
-      .map(group => ({
-        ...group,
-        subtitle: getSubtitle ? getSubtitle(group.notes) : `${group.notes.length} note${group.notes.length === 1 ? '' : 's'}`,
-      }))
-      .filter(group => !query || group.title.toLowerCase().includes(query) || group.subtitle.toLowerCase().includes(query));
+      .map(group => {
+        const sortedNotes = [...group.notes].sort((a: any, b: any) => {
+          return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+        });
+        return {
+          ...group,
+          notes: sortedNotes,
+          subtitle: getSubtitle ? getSubtitle(sortedNotes) : `${sortedNotes.length} note${sortedNotes.length === 1 ? '' : 's'}`,
+        };
+      })
+      .filter(group => !query || group.title.toLowerCase().includes(query) || group.subtitle.toLowerCase().includes(query))
+      .sort((a, b) => {
+        const aTime = a.notes.length > 0 ? new Date(a.notes[0].created_at || 0).getTime() : 0;
+        const bTime = b.notes.length > 0 ? new Date(b.notes[0].created_at || 0).getTime() : 0;
+        return aTime - bTime;
+      });
   };
 
   const countGroups = (items: any[], getKey: (note: any) => string) => new Set(items.map(getKey)).size;

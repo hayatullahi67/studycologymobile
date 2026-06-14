@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -50,6 +50,9 @@ function stripHtml(html: string): string {
 }
 
 type JambTextContentRouteProp = RouteProp<RootStackParamList, 'JambTextContent'>;
+type SpeechStatus = 'idle' | 'playing' | 'paused';
+
+const SPEECH_RATES = [0.75, 1, 1.5, 2];
 
 export function JambTextContentScreen() {
     const route = useRoute<JambTextContentRouteProp>();
@@ -69,48 +72,130 @@ export function JambTextContentScreen() {
     const [webViewHeight, setWebViewHeight] = useState(260);
     const [score, setScore] = useState<{ score: number; total: number } | null>(null);
 
-    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [speechStatus, setSpeechStatus] = useState<SpeechStatus>('idle');
+    const [speechProgress, setSpeechProgress] = useState(0);
+    const [speechRate, setSpeechRate] = useState(1);
+    const speechTextRef = useRef('');
+    const speechCharIndexRef = useRef(0);
+    const speechStartIndexRef = useRef(0);
+    const isPausingRef = useRef(false);
 
     useEffect(() => {
         loadBookData();
         return () => {
             Speech.stop();
+            resetSpeechState();
         };
     }, [textId]);
 
     useEffect(() => {
         return () => {
             Speech.stop();
-            setIsSpeaking(false);
+            resetSpeechState();
         };
     }, [activeSubheading]);
 
-    const stopSpeaking = () => {
-        Speech.stop();
-        setIsSpeaking(false);
+    const resetSpeechState = () => {
+        isPausingRef.current = false;
+        speechTextRef.current = '';
+        speechCharIndexRef.current = 0;
+        speechStartIndexRef.current = 0;
+        setSpeechStatus('idle');
+        setSpeechProgress(0);
     };
 
-    const speakNote = (note: any) => {
-        if (!note) return;
-        Speech.stop(); // Stop any ongoing speech first
+    const updateSpeechPosition = (charIndex: number) => {
+        const textLength = speechTextRef.current.length;
+        if (!textLength) return;
+        const boundedIndex = Math.min(Math.max(charIndex, 0), textLength);
+        speechCharIndexRef.current = boundedIndex;
+        setSpeechProgress(boundedIndex / textLength);
+    };
 
-        const titleText = note.subheading || note.title || 'Chapter';
-        const bodyText = stripHtml(note.content || '');
-        const combinedText = `${titleText}. ${bodyText}`;
+    const stopSpeaking = (resetProgress = true) => {
+        isPausingRef.current = false;
+        Speech.stop();
+        setSpeechStatus('idle');
+        if (resetProgress) {
+            speechCharIndexRef.current = 0;
+            speechStartIndexRef.current = 0;
+            setSpeechProgress(0);
+        }
+    };
 
-        setIsSpeaking(true);
-        Speech.speak(combinedText, {
-            onDone: () => setIsSpeaking(false),
-            onStopped: () => setIsSpeaking(false),
-            onError: () => setIsSpeaking(false),
+    const speakFromPosition = (fullText: string, startIndex = 0, rate = speechRate) => {
+        const trimmedText = fullText.trim();
+        if (!trimmedText) {
+            resetSpeechState();
+            return;
+        }
+
+        const boundedStart = Math.min(Math.max(startIndex, 0), trimmedText.length);
+        speechTextRef.current = trimmedText;
+        speechStartIndexRef.current = boundedStart;
+        speechCharIndexRef.current = boundedStart;
+        setSpeechProgress(boundedStart / trimmedText.length);
+        isPausingRef.current = false;
+        Speech.stop();
+
+        Speech.speak(trimmedText.slice(boundedStart), {
+            rate,
+            onStart: () => setSpeechStatus('playing'),
+            onBoundary: (event: any) => {
+                updateSpeechPosition(speechStartIndexRef.current + event.charIndex + event.charLength);
+            },
+            onDone: () => {
+                speechCharIndexRef.current = 0;
+                speechStartIndexRef.current = 0;
+                setSpeechProgress(1);
+                setSpeechStatus('idle');
+            },
+            onStopped: () => {
+                if (isPausingRef.current) {
+                    isPausingRef.current = false;
+                    setSpeechStatus('paused');
+                } else {
+                    setSpeechStatus('idle');
+                }
+            },
+            onError: () => setSpeechStatus('idle'),
         });
     };
 
+    const getSpeechText = (note: any) => stripHtml(note?.content || '');
+
+    const speakNote = (note: any, rate = speechRate) => {
+        if (!note) return;
+        const bodyText = getSpeechText(note);
+        const startIndex = speechProgress >= 1 ? 0 : speechCharIndexRef.current;
+        speakFromPosition(bodyText, startIndex, rate);
+    };
+
+    const pauseSpeech = async () => {
+        isPausingRef.current = true;
+        setSpeechStatus('paused');
+        await Speech.stop();
+    };
+
+    const resumeSpeech = () => {
+        speakFromPosition(speechTextRef.current || getSpeechText(activeSubheading), speechCharIndexRef.current, speechRate);
+    };
+
     const toggleSpeech = () => {
-        if (isSpeaking) {
-            stopSpeaking();
+        if (speechStatus === 'playing') {
+            pauseSpeech();
+        } else if (speechStatus === 'paused') {
+            resumeSpeech();
         } else {
             speakNote(activeSubheading);
+        }
+    };
+
+    const cycleSpeechRate = () => {
+        const nextRate = SPEECH_RATES[(SPEECH_RATES.indexOf(speechRate) + 1) % SPEECH_RATES.length];
+        setSpeechRate(nextRate);
+        if (speechStatus === 'playing') {
+            speakFromPosition(speechTextRef.current || getSpeechText(activeSubheading), speechCharIndexRef.current, nextRate);
         }
     };
 
@@ -118,7 +203,7 @@ export function JambTextContentScreen() {
         try {
             setLoading(true);
             const database = await localDB.initLocalDatabase();
-            
+
             // 1. Fetch selected text row
             const selectedText: any = await database.getFirstAsync('SELECT * FROM jamb_texts WHERE id = ?', textId);
             if (!selectedText) {
@@ -183,14 +268,12 @@ export function JambTextContentScreen() {
         // Load quiz score for this specific chapter
         await loadQuizScore(item.id);
 
-        // Start reading aloud automatically
-        speakNote(item);
     };
 
     const goBack = () => {
         if (viewMode === 'note') {
             stopSpeaking();
-            
+
             // If the book ONLY has a single subheading, go back to texts list directly
             if (bookSubheadings.length === 1 && (!bookSubheadings[0].subheading || bookSubheadings[0].subheading.trim() === '')) {
                 navigation.goBack();
@@ -371,19 +454,7 @@ export function JambTextContentScreen() {
                 style={{ backgroundColor: C.bg, borderBottomColor: C.bg }}
                 titleStyle={{ color: C.text }}
                 iconColor={C.text}
-                rightElement={
-                    <TouchableOpacity
-                        onPress={toggleSpeech}
-                        style={{ padding: 8, marginRight: -8 }}
-                        activeOpacity={0.7}
-                    >
-                        <Ionicons
-                            name={isSpeaking ? "volume-high" : "volume-medium-outline"}
-                            size={24}
-                            color={isSpeaking ? C.primary : C.text}
-                        />
-                    </TouchableOpacity>
-                }
+
             />
 
             <ScrollView
@@ -397,6 +468,7 @@ export function JambTextContentScreen() {
                             {text.type === 'literature' ? 'LITERATURE' : 'ENGLISH'}
                         </Text>
                     </View>
+
                     <Text style={styles.noteMainTitle}>{subheadingSubtitle}</Text>
                     <Text style={styles.noteBookTitle}>From the novel: "{text.title}"</Text>
 
@@ -409,6 +481,14 @@ export function JambTextContentScreen() {
                         </Text>
                     </View>
                 </View>
+
+                <SpeechPlayer
+                    status={speechStatus}
+                    progress={speechProgress}
+                    rate={speechRate}
+                    onToggle={toggleSpeech}
+                    onCycleRate={cycleSpeechRate}
+                />
 
                 {/* WebView content card */}
                 <View style={styles.noteCard}>
@@ -452,6 +532,56 @@ export function JambTextContentScreen() {
 }
 
 // ─── Subheading Outlined Row Component ───────────────────────────────────────────
+function SpeechPlayer({
+    status,
+    progress,
+    rate,
+    onToggle,
+    onCycleRate,
+}: {
+    status: SpeechStatus;
+    progress: number;
+    rate: number;
+    onToggle: () => void;
+    onCycleRate: () => void;
+}) {
+    const progressPercent = Math.round(Math.min(Math.max(progress, 0), 1) * 100);
+    const isPlaying = status === 'playing';
+
+    return (
+        <View style={styles.speechPlayer}>
+            <TouchableOpacity
+                activeOpacity={0.8}
+                style={styles.speechPlayBtn}
+                onPress={onToggle}
+            >
+                <Ionicons
+                    name={isPlaying ? 'pause' : 'play'}
+                    size={22}
+                    color={C.white}
+                />
+            </TouchableOpacity>
+
+            <View style={styles.speechTrackWrap}>
+                <View style={styles.speechTrack}>
+                    <View style={[styles.speechProgress, { width: `${progressPercent}%` }]} />
+                </View>
+                <Text style={styles.speechMeta}>
+                    {status === 'paused' ? 'Paused' : isPlaying ? 'Reading' : 'Ready'} - {progressPercent}%
+                </Text>
+            </View>
+
+            <TouchableOpacity
+                activeOpacity={0.8}
+                style={styles.speedBtn}
+                onPress={onCycleRate}
+            >
+                <Text style={styles.speedText}>{rate}x</Text>
+            </TouchableOpacity>
+        </View>
+    );
+}
+
 function SubheadingRow({ item, index, onPress }: { item: any; index: number; onPress: () => void }) {
     const label = item.subheading || item.title || `Section ${index + 1}`;
     const hasQuiz = Array.isArray(item.quiz) && item.quiz.length > 0;
@@ -547,6 +677,53 @@ const styles = StyleSheet.create({
     noteBookTitle: { fontSize: 13, fontWeight: '700', color: C.primary, marginBottom: 12 },
     dateRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     dateText: { fontSize: 12, fontWeight: '700', color: C.textMuted },
+
+    speechPlayer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        backgroundColor: C.primaryDeep,
+        borderRadius: 16,
+        padding: 12,
+        marginBottom: 16,
+    },
+    speechPlayBtn: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: C.primary,
+    },
+    speechTrackWrap: { flex: 1 },
+    speechTrack: {
+        height: 5,
+        borderRadius: 3,
+        overflow: 'hidden',
+        backgroundColor: 'rgba(255,255,255,0.18)',
+    },
+    speechProgress: {
+        height: '100%',
+        borderRadius: 3,
+        backgroundColor: C.white,
+    },
+    speechMeta: {
+        color: 'rgba(255,255,255,0.75)',
+        fontSize: 11,
+        fontWeight: '800',
+        marginTop: 7,
+    },
+    speedBtn: {
+        minWidth: 52,
+        height: 34,
+        borderRadius: 17,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.14)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.18)',
+    },
+    speedText: { color: C.white, fontSize: 12, fontWeight: '900' },
 
     noteCard: {
         backgroundColor: C.white,
