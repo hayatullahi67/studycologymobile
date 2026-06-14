@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import * as supabaseDB from '../../../services/supabaseDatabase';
 import { ThemeColors } from '../../../theme/colors';
@@ -18,12 +19,20 @@ export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: No
     const [note, setNote] = useState<any>(null);
     const [topicNotes, setTopicNotes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
+    const [playbackStatus, setPlaybackStatus] = useState({ position: 0, duration: 1, isPlaying: false });
+    const soundRef = useRef<Audio.Sound | null>(null);
     const [webViewHeights, setWebViewHeights] = useState<Record<string, number>>({});
     const [showSubtopicContent, setShowSubtopicContent] = useState(false);
     const noteIdsKey = `${noteId}|${(noteIds && noteIds.length > 0 ? noteIds : [noteId]).join('|')}`;
 
     useEffect(() => {
         loadNote();
+        return () => {
+            if (soundRef.current) {
+                soundRef.current.unloadAsync();
+            }
+        };
     }, [noteIdsKey]);
 
     const loadNote = async () => {
@@ -46,6 +55,71 @@ export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: No
             setLoading(false);
         }
     };
+
+    const onPlaybackStatusUpdate = (status: any) => {
+        if (status.isLoaded) {
+            setPlaybackStatus({ position: status.positionMillis, duration: status.durationMillis || 1, isPlaying: status.isPlaying });
+            if (status.didJustFinish) setActiveAudioId(null);
+        }
+    };
+
+  const playAudio = async (url: string, id: string) => {
+    try {
+        if (!url || url === 'null' || url.trim() === '') {
+            console.warn('[Audio] Attempted to play invalid URL:', url);
+            return;
+        }
+
+        // ✅ Handle pause/resume FIRST before doing anything with the URL
+        if (activeAudioId === id && soundRef.current) {
+            const status = await soundRef.current.getStatusAsync();
+            if (status.isLoaded) {
+                status.isPlaying 
+                    ? await soundRef.current.pauseAsync() 
+                    : await soundRef.current.playAsync();
+            }
+            return;
+        }
+
+        // Unload previous sound
+        if (soundRef.current) {
+            await soundRef.current.unloadAsync();
+            soundRef.current = null;
+        }
+
+        await Audio.setAudioModeAsync({
+            allowsRecordingIOS: false,
+            playsInSilentModeIOS: true,
+            staysActiveInBackground: false,
+            shouldDuckAndroid: true,
+            playThroughEarpieceAndroid: false,
+        });
+
+        // ✅ Use the URL directly — no supabase client needed
+        const audioUri = url.trim();
+        console.log('[Audio] Playing URI:', audioUri); // keep this for debugging
+
+        const { sound: newSound } = await Audio.Sound.createAsync(
+            { uri: audioUri },
+            {
+                shouldPlay: true,
+                progressUpdateIntervalMillis: 100,
+                positionMillis: 0,
+                rate: 1.0,
+                shouldCorrectPitch: true,
+                volume: 1.0,
+                isMuted: false,
+            },
+            onPlaybackStatusUpdate
+        );
+
+        soundRef.current = newSound;
+        setActiveAudioId(id);
+    } catch (err) {
+        console.error('[Audio] Playback failed:', err);
+        Alert.alert('Error', 'Could not play audio. Please try again.');
+    }
+};
 
     const handleSelectSubtopic = async (subtopicId: string) => {
         if (note?.id === subtopicId && topicNotes.some((item) => item.id === subtopicId)) {
@@ -307,6 +381,26 @@ export function NoteDetailView({ noteId, noteIds, onBack, onEdit, onDelete }: No
 
                         <View style={[styles.noteContentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
                             <Text style={styles.noteContentTitle}>{note?.subtopic || note?.title || 'Selected Subtopic'}</Text>
+                            
+                            {note?.audio_url && (
+                                <View style={[styles.detailAudioContainer, { backgroundColor: '#FFF3E0', borderColor: '#E7E0D7' }]}>
+                                    <TouchableOpacity style={[styles.detailPlayBtn, { backgroundColor: '#864b03' }]} onPress={() => playAudio(note.audio_url, note.id)}>
+                                        <Ionicons name={activeAudioId === note.id && playbackStatus.isPlaying ? "pause" : "play"} size={20} color="#FFF" />
+                                    </TouchableOpacity>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.detailAudioText}>Voice Explanation</Text>
+                                        <View style={styles.detailProgressBarBg}>
+                                            <View style={[styles.detailProgressBarFill, { width: activeAudioId === note.id ? `${(playbackStatus.position / playbackStatus.duration) * 100}%` : '0%' }]} />
+                                        </View>
+                                        {activeAudioId === note.id && (
+                                            <Text style={styles.detailTimeText}>
+                                                {Math.floor(playbackStatus.position / 1000)}s / {Math.floor(playbackStatus.duration / 1000)}s
+                                            </Text>
+                                        )}
+                                    </View>
+                                </View>
+                            )}
+
                             <WebView
                                 originWhitelist={['*']}
                                 source={{ html: renderContentHtml(note?.content || '') }}
@@ -488,6 +582,12 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '800'
     },
+    detailAudioContainer: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 16, borderWidth: 1, marginBottom: 16 },
+    detailPlayBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+    detailAudioText: { fontSize: 12, fontWeight: '800', color: '#864b03', marginBottom: 4 },
+    detailProgressBarBg: { height: 4, backgroundColor: '#E7E0D7', borderRadius: 2, overflow: 'hidden' },
+    detailProgressBarFill: { height: '100%', backgroundColor: '#864b03' },
+    detailTimeText: { fontSize: 9, fontWeight: '700', color: '#864b03', marginTop: 4, textAlign: 'right' },
     accordionCard: {
         borderWidth: 1,
         borderRadius: 18,

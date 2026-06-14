@@ -70,12 +70,20 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
     const [fetching, setFetching] = useState(false);
     const [isRecording, setIsRecording] = useState<string | null>(null); // Stores subheading ID being recorded
     const [recordingInstance, setRecordingInstance] = useState<Audio.Recording | null>(null);
+    const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
+    const [playbackStatus, setPlaybackStatus] = useState({ position: 0, duration: 1, isPlaying: false });
+    const soundRef = useRef<Audio.Sound | null>(null);
     const [keyboardExtraSpace, setKeyboardExtraSpace] = useState(false);
 
     useEffect(() => {
         if (textId) {
             loadText();
         }
+        return () => {
+            if (soundRef.current) {
+                soundRef.current.unloadAsync();
+            }
+        };
     }, [textId]);
 
     const loadText = async () => {
@@ -194,18 +202,45 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
         }
     };
 
+    const onPlaybackStatusUpdate = (status: any) => {
+        if (status.isLoaded) {
+            setPlaybackStatus({
+                position: status.positionMillis,
+                duration: status.durationMillis || 1,
+                isPlaying: status.isPlaying,
+            });
+            if (status.didJustFinish) setActiveAudioId(null);
+        }
+    };
+
     const playAudio = async (draft: SubheadingDraft) => {
         try {
             const uri = draft.localAudioFile?.uri || draft.audioUrl;
             if (!uri) return;
+
+            if (activeAudioId === draft.id && soundRef.current) {
+                if (playbackStatus.isPlaying) {
+                    await soundRef.current.pauseAsync();
+                } else {
+                    await soundRef.current.playAsync();
+                }
+                return;
+            }
+
+            if (soundRef.current) await soundRef.current.unloadAsync();
 
             await Audio.setAudioModeAsync({
                 allowsRecordingIOS: false,
                 playsInSilentModeIOS: true,
             });
 
-            const { sound } = await Audio.Sound.createAsync({ uri });
-            await sound.playAsync();
+            const { sound: newSound } = await Audio.Sound.createAsync(
+                { uri },
+                { shouldPlay: true },
+                onPlaybackStatusUpdate
+            );
+            soundRef.current = newSound;
+            setActiveAudioId(draft.id);
         } catch (err) {
             Alert.alert('Error', 'Could not play audio');
         }
@@ -217,7 +252,11 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
             "Are you sure you want to remove this voice note?",
             [
                 { text: "Cancel", style: "cancel" },
-                { text: "Remove", style: "destructive", onPress: () => {
+                { text: "Remove", style: "destructive", onPress: async () => {
+                    if (activeAudioId === subheadings[index].id && soundRef.current) {
+                        await soundRef.current.stopAsync();
+                        setActiveAudioId(null);
+                    }
                     updateSubheading(index, 'audioUrl', '');
                     updateSubheading(index, 'localAudioFile', null);
                 }}
@@ -572,20 +611,34 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
                                 <Text style={[styles.label, { color: colors.textSecondary }]}>VOICE NOTE / EXPLANATION</Text>
                                 <View style={[styles.audioContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
                                     {(item.audioUrl || item.localAudioFile) ? (
-                                        <View style={styles.audioPlayerRow}>
-                                            <TouchableOpacity 
-                                                style={[styles.audioActionBtn, { backgroundColor: colors.primary }]}
-                                                onPress={() => playAudio(item)}
-                                            >
-                                                <Ionicons name="play" size={20} color="#FFF" />
-                                                <Text style={styles.audioActionText}>{item.localAudioFile ? 'Preview' : 'Listen'}</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity 
-                                                style={[styles.audioActionBtn, { backgroundColor: '#EF4444' }]}
-                                                onPress={() => removeAudio(subheadingIndex)}
-                                            >
-                                                <Ionicons name="trash" size={20} color="#FFF" />
-                                            </TouchableOpacity>
+                                        <View style={styles.audioPlayerColumn}>
+                                            <View style={styles.audioPlayerRow}>
+                                                <TouchableOpacity 
+                                                    style={[styles.audioActionBtn, { backgroundColor: colors.primary }]}
+                                                    onPress={() => playAudio(item)}
+                                                >
+                                                    <Ionicons name={activeAudioId === item.id && playbackStatus.isPlaying ? "pause" : "play"} size={20} color="#FFF" />
+                                                    <Text style={styles.audioActionText}>
+                                                        {activeAudioId === item.id ? (playbackStatus.isPlaying ? 'Playing' : 'Paused') : (item.localAudioFile ? 'Preview' : 'Listen')}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity 
+                                                    style={[styles.audioActionBtn, { backgroundColor: '#EF4444' }]}
+                                                    onPress={() => removeAudio(subheadingIndex)}
+                                                >
+                                                    <Ionicons name="trash" size={20} color="#FFF" />
+                                                </TouchableOpacity>
+                                            </View>
+                                            {activeAudioId === item.id && (
+                                                <View style={styles.progressContainer}>
+                                                    <View style={[styles.progressBarBg, { backgroundColor: colors.border }]}>
+                                                        <View style={[styles.progressBarFill, { backgroundColor: colors.primary, width: `${(playbackStatus.position / playbackStatus.duration) * 100}%` }]} />
+                                                    </View>
+                                                    <Text style={styles.progressTime}>
+                                                        {Math.floor(playbackStatus.position / 60000)}:{(Math.floor(playbackStatus.position / 1000) % 60).toString().padStart(2, '0')} / {Math.floor(playbackStatus.duration / 60000)}:{(Math.floor(playbackStatus.duration / 1000) % 60).toString().padStart(2, '0')}
+                                                    </Text>
+                                                </View>
+                                            )}
                                         </View>
                                     ) : (
                                         <View style={styles.audioControlsRow}>
@@ -799,7 +852,12 @@ const styles = StyleSheet.create({
     },
     audioBtnRecording: { backgroundColor: '#EF4444' },
     audioBtnText: { fontSize: 13, fontWeight: '700', color: '#864b03' },
+    audioPlayerColumn: { gap: 12 },
     audioPlayerRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+    progressContainer: { marginTop: 4 },
+    progressBarBg: { height: 6, borderRadius: 3, width: '100%', overflow: 'hidden' },
+    progressBarFill: { height: '100%' },
+    progressTime: { fontSize: 10, fontWeight: '700', color: '#864b03', marginTop: 4, textAlign: 'right' },
     audioActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
     audioActionText: { color: '#FFF', fontWeight: '800', fontSize: 13 },
     topicQuizCard: {

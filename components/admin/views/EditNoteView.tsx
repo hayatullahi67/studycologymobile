@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import { Audio } from 'expo-av';
 import * as supabaseDB from '../../../services/supabaseDatabase';
 import { useAppStore } from '../../../store/useAppStore';
 import { ThemeColors, COLORS } from '../../../theme/colors';
@@ -26,6 +28,8 @@ type SubtopicDraft = {
     subtopicId?: string;
     title: string;
     content: string;
+    localAudioFile?: any;
+    audioUrl: string;
     isNew?: boolean;
     quiz: QuizQuestionDraft[];
 };
@@ -34,6 +38,7 @@ const createSubtopicDraft = (): SubtopicDraft => ({
     id: Date.now().toString(),
     title: '',
     content: '',
+    audioUrl: '',
     isNew: true,
     quiz: [],
 });
@@ -61,10 +66,20 @@ export function EditNoteView({ noteId, onBack, onSave }: EditNoteViewProps) {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [keyboardExtraSpace, setKeyboardExtraSpace] = useState(false);
+    const [isRecording, setIsRecording] = useState<string | null>(null);
+    const [recordingInstance, setRecordingInstance] = useState<Audio.Recording | null>(null);
+    const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
+    const [playbackStatus, setPlaybackStatus] = useState({ position: 0, duration: 1, isPlaying: false });
+    const soundRef = useRef<Audio.Sound | null>(null);
     const [defaultSubtopicId, setDefaultSubtopicId] = useState('');
 
     useEffect(() => {
         loadNote();
+        return () => {
+            if (soundRef.current) {
+                soundRef.current.unloadAsync();
+            }
+        };
     }, [noteId]);
 
     const loadNote = async () => {
@@ -99,6 +114,7 @@ export function EditNoteView({ noteId, onBack, onSave }: EditNoteViewProps) {
                     subtopicId: item.subtopic_id || '',
                     title: item.subtopic || item.title || '',
                     content: item.content || '',
+                    audioUrl: item.audio_url || '',
                     isNew: false,
                     quiz: Array.isArray(item.quiz) ? item.quiz.map((q: any) => ({
                         id: q.id || Date.now().toString(),
@@ -117,6 +133,75 @@ export function EditNoteView({ noteId, onBack, onSave }: EditNoteViewProps) {
         } finally {
             setLoading(false);
         }
+    };
+
+    const onPlaybackStatusUpdate = (status: any) => {
+        if (status.isLoaded) {
+            setPlaybackStatus({
+                position: status.positionMillis,
+                duration: status.durationMillis || 1,
+                isPlaying: status.isPlaying,
+            });
+            if (status.didJustFinish) setActiveAudioId(null);
+        }
+    };
+
+    const startRecording = async (subtopicId: string) => {
+        try {
+            const permission = await Audio.requestPermissionsAsync();
+            if (permission.status !== 'granted') return Alert.alert('Error', 'Microphone access denied');
+            await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+            const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+            setRecordingInstance(recording);
+            setIsRecording(subtopicId);
+        } catch (err) { Alert.alert('Error', 'Failed to start recording'); }
+    };
+
+    const stopRecording = async (index: number) => {
+        if (!recordingInstance) return;
+        try {
+            setIsRecording(null);
+            await recordingInstance.stopAndUnloadAsync();
+            const uri = recordingInstance.getURI();
+            setRecordingInstance(null);
+            if (uri) updateSubtopic(index, 'localAudioFile', { uri, name: `rec_${Date.now()}.m4a`, mimeType: 'audio/m4a' });
+        } catch (err) { console.error(err); }
+    };
+
+    const pickAudio = async (index: number) => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                updateSubtopic(index, 'localAudioFile', { uri: asset.uri, name: asset.name, mimeType: asset.mimeType });
+            }
+        } catch (err) { console.error(err); }
+    };
+
+    const playAudio = async (draft: SubtopicDraft) => {
+        try {
+            const uri = draft.localAudioFile?.uri || draft.audioUrl;
+            if (!uri) return;
+            if (activeAudioId === draft.id && soundRef.current) {
+                playbackStatus.isPlaying ? await soundRef.current.pauseAsync() : await soundRef.current.playAsync();
+                return;
+            }
+            if (soundRef.current) await soundRef.current.unloadAsync();
+            await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+            const { sound: newSound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true }, onPlaybackStatusUpdate);
+            soundRef.current = newSound;
+            setActiveAudioId(draft.id);
+        } catch (err) { Alert.alert('Error', 'Could not play audio'); }
+    };
+
+    const removeAudio = (index: number) => {
+        Alert.alert("Remove Audio", "Are you sure?", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Remove", style: "destructive", onPress: () => {
+                updateSubtopic(index, 'audioUrl', '');
+                updateSubtopic(index, 'localAudioFile', null);
+            }}
+        ]);
     };
 
     const handleSave = async () => {
@@ -146,6 +231,12 @@ export function EditNoteView({ noteId, onBack, onSave }: EditNoteViewProps) {
             }
 
             for (const item of cleanSubtopics) {
+                let finalAudioUrl = item.audioUrl;
+                if (item.localAudioFile) {
+                    const audioRes = await supabaseDB.uploadAudioFile(item.localAudioFile, 'notes');
+                    finalAudioUrl = audioRes.publicUrl;
+                }
+
                 if (item.noteId) {
                     await supabaseDB.updateNote(item.noteId, {
                         title: cleanTitle,
@@ -158,6 +249,7 @@ export function EditNoteView({ noteId, onBack, onSave }: EditNoteViewProps) {
                         content: item.content,
                         quiz: item.quiz.length > 0 ? item.quiz : undefined,
                         is_default: item.id === defaultSubtopicId,
+                        audio_url: finalAudioUrl,
                     });
                 } else {
                     await supabaseDB.addNote(cleanTitle, cleanSubject, cleanTopic, item.content, item.quiz.length > 0 ? item.quiz : undefined, {
@@ -166,6 +258,7 @@ export function EditNoteView({ noteId, onBack, onSave }: EditNoteViewProps) {
                         subtopic_id: item.subtopicId,
                         subtopic: item.title,
                         is_default: item.id === defaultSubtopicId,
+                        audio_url: finalAudioUrl,
                     });
                 }
             }
@@ -359,6 +452,49 @@ export function EditNoteView({ noteId, onBack, onSave }: EditNoteViewProps) {
                             </View>
 
                             <View style={styles.inputGroup}>
+                                <Text style={[styles.label, { color: colors.textSecondary }]}>VOICE NOTE / EXPLANATION</Text>
+                                <View style={[styles.audioContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                                    {(item.audioUrl || item.localAudioFile) ? (
+                                        <View style={styles.audioPlayerColumn}>
+                                            <View style={styles.audioPlayerRow}>
+                                                <TouchableOpacity style={[styles.audioActionBtn, { backgroundColor: colors.primary }]} onPress={() => playAudio(item)}>
+                                                    <Ionicons name={activeAudioId === item.id && playbackStatus.isPlaying ? "pause" : "play"} size={20} color="#FFF" />
+                                                    <Text style={styles.audioActionText}>{activeAudioId === item.id ? (playbackStatus.isPlaying ? 'Playing' : 'Paused') : 'Listen'}</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity style={[styles.audioActionBtn, { backgroundColor: '#EF4444' }]} onPress={() => removeAudio(subtopicIndex)}>
+                                                    <Ionicons name="trash" size={20} color="#FFF" />
+                                                </TouchableOpacity>
+                                            </View>
+                                            {activeAudioId === item.id && (
+                                                <View style={styles.progressContainer}>
+                                                    <View style={[styles.progressBarBg, { backgroundColor: colors.border }]}>
+                                                        <View style={[styles.progressBarFill, { backgroundColor: colors.primary, width: `${(playbackStatus.position / playbackStatus.duration) * 100}%` }]} />
+                                                    </View>
+                                                    <Text style={styles.progressTime}>
+                                                        {Math.floor(playbackStatus.position / 60000)}:{(Math.floor(playbackStatus.position / 1000) % 60).toString().padStart(2, '0')} / {Math.floor(playbackStatus.duration / 60000)}:{(Math.floor(playbackStatus.duration / 1000) % 60).toString().padStart(2, '0')}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                        </View>
+                                    ) : (
+                                        <View style={styles.audioControlsRow}>
+                                            <TouchableOpacity 
+                                                style={[styles.audioBtn, isRecording === item.id && styles.audioBtnRecording]}
+                                                onPress={() => isRecording === item.id ? stopRecording(subtopicIndex) : startRecording(item.id)}
+                                            >
+                                                <Ionicons name={isRecording === item.id ? "stop-circle" : "mic"} size={22} color={isRecording === item.id ? "#FFF" : colors.primary} />
+                                                <Text style={[styles.audioBtnText, isRecording === item.id && { color: '#FFF' }]}>{isRecording === item.id ? "Recording..." : "Record"}</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity style={styles.audioBtn} onPress={() => pickAudio(subtopicIndex)}>
+                                                <Ionicons name="cloud-upload-outline" size={22} color={colors.primary} />
+                                                <Text style={styles.audioBtnText}>Upload File</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
+                                </View>
+                            </View>
+
+                            <View style={styles.inputGroup}>
                                 <Text style={[styles.label, { color: colors.textSecondary }]}>CONTENT</Text>
                                 <RichTextEditor
                                     initialValue={item.content}
@@ -517,6 +653,19 @@ const styles = StyleSheet.create({
     },
     defaultBtnText: { color: '#864b03', fontSize: 11, fontWeight: '900' },
     defaultBtnTextActive: { color: '#FFFFFF' },
+    audioContainer: { padding: 12, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed' },
+    audioControlsRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+    audioBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 12, backgroundColor: 'rgba(134, 75, 3, 0.05)' },
+    audioBtnRecording: { backgroundColor: '#EF4444' },
+    audioBtnText: { fontSize: 13, fontWeight: '700', color: '#864b03' },
+    audioPlayerColumn: { gap: 12 },
+    audioPlayerRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+    progressContainer: { marginTop: 4 },
+    progressBarBg: { height: 6, borderRadius: 3, width: '100%', overflow: 'hidden' },
+    progressBarFill: { height: '100%' },
+    progressTime: { fontSize: 10, fontWeight: '700', color: '#864b03', marginTop: 4, textAlign: 'right' },
+    audioActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
+    audioActionText: { color: '#FFF', fontWeight: '800', fontSize: 13 },
     topicQuizCard: {
         padding: 20,
         borderRadius: 24,

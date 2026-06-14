@@ -1155,7 +1155,7 @@ const resolveNoteHierarchyIds = async (subjectId: string | null | undefined, top
   };
 };
 
-export const addNote = async (title: string, subject: string, topic: string, content: string, quiz?: any, hierarchy?: { subject_id?: string | null; topic_id?: string | null; subtopic_id?: string | null; subtopic?: string; is_default?: boolean }) => {
+export const addNote = async (title: string, subject: string, topic: string, content: string, quiz?: any, hierarchy?: { subject_id?: string | null; topic_id?: string | null; subtopic_id?: string | null; subtopic?: string; is_default?: boolean ;  audio_url?: string | null }) => {
   try {
     const ids = await resolveNoteHierarchyIds(hierarchy?.subject_id, topic, hierarchy?.subtopic || '', hierarchy);
     const { data, error } = await supabase
