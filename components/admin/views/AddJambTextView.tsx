@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, StatusBar, Image, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { Audio } from 'expo-av';
 import * as supabaseDB from '../../../services/supabaseDatabase';
 import { useAppStore } from '../../../store/useAppStore';
 import { ThemeColors, COLORS } from '../../../theme/colors';
@@ -26,6 +28,8 @@ type SubheadingDraft = {
     id: string;
     title: string;
     content: string;
+    localAudioFile?: any;
+    audioUrl: string;
     quiz: QuizQuestionDraft[];
 };
 
@@ -33,6 +37,7 @@ const createSubheadingDraft = (): SubheadingDraft => ({
     id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
     title: '',
     content: '',
+    audioUrl: '',
     quiz: [],
 });
 
@@ -63,6 +68,8 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [fetching, setFetching] = useState(false);
+    const [isRecording, setIsRecording] = useState<string | null>(null); // Stores subheading ID being recorded
+    const [recordingInstance, setRecordingInstance] = useState<Audio.Recording | null>(null);
     const [keyboardExtraSpace, setKeyboardExtraSpace] = useState(false);
 
     useEffect(() => {
@@ -96,6 +103,7 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
                         id: r.id, // Maintain database row UUID
                         title: r.subheading || '',
                         content: r.content || '',
+                        audioUrl: r.audio_url || '',
                         quiz: r.quiz ? (typeof r.quiz === 'string' ? JSON.parse(r.quiz) : r.quiz) : []
                     }));
                     setSubheadings(drafts);
@@ -107,6 +115,7 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
                         id: selectedText.id,
                         title: '',
                         content: selectedText.content || '',
+                        audioUrl: selectedText.audio_url || '',
                         quiz: selectedText.quiz ? (typeof selectedText.quiz === 'string' ? JSON.parse(selectedText.quiz) : selectedText.quiz) : []
                     }]);
                     setDefaultSubheadingId(selectedText.id);
@@ -117,6 +126,103 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
         } finally {
             setFetching(false);
         }
+    };
+
+    const startRecording = async (subheadingId: string) => {
+        try {
+            const permission = await Audio.requestPermissionsAsync();
+            if (permission.status !== 'granted') {
+                Alert.alert('Permission Denied', 'Please allow microphone access to record voice notes.');
+                return;
+            }
+
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: true,
+                playsInSilentModeIOS: true,
+            });
+
+            const { recording } = await Audio.Recording.createAsync(
+                Audio.RecordingOptionsPresets.HIGH_QUALITY
+            );
+            
+            setRecordingInstance(recording);
+            setIsRecording(subheadingId);
+        } catch (err) {
+            console.error('Failed to start recording', err);
+            Alert.alert('Error', 'Could not start recording');
+        }
+    };
+
+    const stopRecording = async (index: number) => {
+        if (!recordingInstance) return;
+        
+        try {
+            setIsRecording(null);
+            await recordingInstance.stopAndUnloadAsync();
+            const uri = recordingInstance.getURI();
+            setRecordingInstance(null);
+
+            if (uri) {
+                updateSubheading(index, 'localAudioFile', {
+                    uri,
+                    name: `recording_${Date.now()}.m4a`,
+                    mimeType: 'audio/m4a'
+                });
+            }
+        } catch (err) {
+            console.error('Failed to stop recording', err);
+        }
+    };
+
+    const pickAudio = async (index: number) => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: 'audio/*',
+                copyToCacheDirectory: true
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                updateSubheading(index, 'localAudioFile', {
+                    uri: asset.uri,
+                    name: asset.name,
+                    mimeType: asset.mimeType
+                });
+            }
+        } catch (err) {
+            console.error('Error picking audio', err);
+        }
+    };
+
+    const playAudio = async (draft: SubheadingDraft) => {
+        try {
+            const uri = draft.localAudioFile?.uri || draft.audioUrl;
+            if (!uri) return;
+
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: false,
+                playsInSilentModeIOS: true,
+            });
+
+            const { sound } = await Audio.Sound.createAsync({ uri });
+            await sound.playAsync();
+        } catch (err) {
+            Alert.alert('Error', 'Could not play audio');
+        }
+    };
+
+    const removeAudio = (index: number) => {
+        Alert.alert(
+            "Remove Audio",
+            "Are you sure you want to remove this voice note?",
+            [
+                { text: "Cancel", style: "cancel" },
+                { text: "Remove", style: "destructive", onPress: () => {
+                    updateSubheading(index, 'audioUrl', '');
+                    updateSubheading(index, 'localAudioFile', null);
+                }}
+            ]
+        );
     };
 
     const pickImage = async () => {
@@ -260,6 +366,12 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
 
             // 3. Loop through subheadings and save (inserts new ones, updates existing ones)
             for (const item of cleanSubheadings) {
+                let finalAudioUrl = item.audioUrl;
+                if (item.localAudioFile) {
+                    const audioRes = await supabaseDB.uploadAudioFile(item.localAudioFile, 'jamb-texts');
+                    finalAudioUrl = audioRes.publicUrl;
+                }
+
                 const textData = {
                     type,
                     title: cleanTitle,
@@ -271,6 +383,7 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
                     subheading: item.title || null,
                     subheading_id: item.id.includes('-') ? null : item.id, // Only send custom subheading_id if it's a new draft ID
                     is_default: item.id === defaultSubheadingId,
+                    audio_url: finalAudioUrl || null
                 };
 
                 if (item.id.includes('-')) {
@@ -290,6 +403,7 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
                             subheading_id: item.id,
                             subheading: item.title || undefined,
                             is_default: item.id === defaultSubheadingId,
+                            audio_url: finalAudioUrl || undefined
                         }
                     );
                 }
@@ -452,6 +566,47 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
                                     placeholder="e.g. Chapter One: The Meeting"
                                     placeholderTextColor={isDark ? COLORS.slate[500] : COLORS.slate[400]}
                                 />
+                            </View>
+
+                            <View style={styles.inputGroup}>
+                                <Text style={[styles.label, { color: colors.textSecondary }]}>VOICE NOTE / EXPLANATION</Text>
+                                <View style={[styles.audioContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                                    {(item.audioUrl || item.localAudioFile) ? (
+                                        <View style={styles.audioPlayerRow}>
+                                            <TouchableOpacity 
+                                                style={[styles.audioActionBtn, { backgroundColor: colors.primary }]}
+                                                onPress={() => playAudio(item)}
+                                            >
+                                                <Ionicons name="play" size={20} color="#FFF" />
+                                                <Text style={styles.audioActionText}>{item.localAudioFile ? 'Preview' : 'Listen'}</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity 
+                                                style={[styles.audioActionBtn, { backgroundColor: '#EF4444' }]}
+                                                onPress={() => removeAudio(subheadingIndex)}
+                                            >
+                                                <Ionicons name="trash" size={20} color="#FFF" />
+                                            </TouchableOpacity>
+                                        </View>
+                                    ) : (
+                                        <View style={styles.audioControlsRow}>
+                                            <>
+                                                <TouchableOpacity 
+                                                    style={[styles.audioBtn, isRecording === item.id && styles.audioBtnRecording]}
+                                                    onPress={() => isRecording === item.id ? stopRecording(subheadingIndex) : startRecording(item.id)}
+                                                >
+                                                    <Ionicons name={isRecording === item.id ? "stop-circle" : "mic"} size={22} color={isRecording === item.id ? "#FFF" : colors.primary} />
+                                                    <Text style={[styles.audioBtnText, isRecording === item.id && { color: '#FFF' }]}>
+                                                        {isRecording === item.id ? "Recording..." : "Record"}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity style={styles.audioBtn} onPress={() => pickAudio(subheadingIndex)}>
+                                                    <Ionicons name="cloud-upload-outline" size={22} color={colors.primary} />
+                                                    <Text style={styles.audioBtnText}>Upload File</Text>
+                                                </TouchableOpacity>
+                                            </>
+                                        </View>
+                                    )}
+                                </View>
                             </View>
 
                             <View style={styles.inputGroup}>
@@ -630,6 +785,23 @@ const styles = StyleSheet.create({
     },
     defaultBtnText: { color: '#864b03', fontSize: 11, fontWeight: '900' },
     defaultBtnTextActive: { color: '#FFFFFF' },
+    audioContainer: { padding: 12, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed' },
+    audioControlsRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+    audioBtn: { 
+        flex: 1, 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        gap: 8, 
+        paddingVertical: 10, 
+        borderRadius: 12, 
+        backgroundColor: 'rgba(134, 75, 3, 0.05)' 
+    },
+    audioBtnRecording: { backgroundColor: '#EF4444' },
+    audioBtnText: { fontSize: 13, fontWeight: '700', color: '#864b03' },
+    audioPlayerRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+    audioActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
+    audioActionText: { color: '#FFF', fontWeight: '800', fontSize: 13 },
     topicQuizCard: {
         padding: 20,
         borderRadius: 24,

@@ -62,10 +62,10 @@ export const initLocalDatabase = async () => {
                 CREATE TABLE IF NOT EXISTS exam_years (id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, year INTEGER NOT NULL, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS subjects (id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, exam_year_id TEXT NOT NULL, name TEXT NOT NULL, question_count INTEGER DEFAULT 0, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, exam_year_id TEXT NOT NULL, subject_id TEXT NOT NULL, question TEXT NOT NULL, option_a TEXT NOT NULL, option_b TEXT NOT NULL, option_c TEXT NOT NULL, option_d TEXT NOT NULL, correct_answer TEXT NOT NULL, explanation TEXT, image_url TEXT, created_at TEXT);
-                CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, subject_id TEXT, subject TEXT, topic_id TEXT, topic TEXT, subtopic_id TEXT, subtopic TEXT, content TEXT NOT NULL, quiz TEXT, is_default INTEGER DEFAULT 0, created_at TEXT);
+                CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, subject_id TEXT, subject TEXT, topic_id TEXT, topic TEXT, subtopic_id TEXT, subtopic TEXT, content TEXT NOT NULL, quiz TEXT, is_default INTEGER DEFAULT 0, audio_url TEXT, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS pdf_resources (id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, exam_year_id TEXT NOT NULL, subject_id TEXT NOT NULL, file_url TEXT NOT NULL, file_name TEXT NOT NULL, size_kb REAL, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS exam_results (id TEXT PRIMARY KEY, total_score REAL, total_questions INTEGER, total_correct INTEGER, total_wrong INTEGER, time_spent INTEGER, date TEXT, mode TEXT, subject_id TEXT, subject_results TEXT, user_answers TEXT);
-                CREATE TABLE IF NOT EXISTS jamb_texts (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, author TEXT, thumbnail_url TEXT, category TEXT, content TEXT NOT NULL, quiz TEXT, subheading_id TEXT, subheading TEXT, is_default INTEGER DEFAULT 0, created_at TEXT);
+                CREATE TABLE IF NOT EXISTS jamb_texts (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, author TEXT, thumbnail_url TEXT, category TEXT, content TEXT NOT NULL, quiz TEXT, subheading_id TEXT, subheading TEXT, is_default INTEGER DEFAULT 0, audio_url TEXT, created_at TEXT);
                 CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS sync_status (key TEXT PRIMARY KEY, last_sync TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, name TEXT, role TEXT NOT NULL DEFAULT 'user', assigned_view TEXT, is_paid INTEGER DEFAULT 0, expiry_date TEXT, created_at TEXT NOT NULL, active_premium_device_id TEXT, active_premium_device_name TEXT, current_device_id TEXT, current_device_name TEXT, current_device_has_premium INTEGER DEFAULT 0, premium_revoked_permanently INTEGER DEFAULT 0, device_access_state TEXT, premium_checked_at TEXT, premium_offline_valid_until TEXT);
@@ -101,6 +101,7 @@ export const initLocalDatabase = async () => {
                 'ALTER TABLE notes ADD COLUMN subtopic_id TEXT;',
                 'ALTER TABLE notes ADD COLUMN subtopic TEXT;',
                 'ALTER TABLE notes ADD COLUMN is_default INTEGER DEFAULT 0;',
+                'ALTER TABLE notes ADD COLUMN audio_url TEXT;',
             ];
             for (const migration of noteColumnMigrations) {
                 try {
@@ -134,6 +135,7 @@ export const initLocalDatabase = async () => {
             } catch (e) { }
             try {
                 await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN is_default INTEGER DEFAULT 0;');
+                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN audio_url TEXT;');
                 console.log('[DB] Migration: Added new columns and subheading support to jamb_texts table.');
             } catch (e) {
                 // Column likely already exists
@@ -264,7 +266,7 @@ export const saveNotes = async (notes: any[]) => {
     return enqueueDbOperation(async () => {
         const database = await initLocalDatabase();
         for (const n of notes) {
-            await database.runAsync('INSERT OR REPLACE INTO notes (id, title, subject_id, subject, topic_id, topic, subtopic_id, subtopic, content, quiz, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            await database.runAsync('INSERT OR REPLACE INTO notes (id, title, subject_id, subject, topic_id, topic, subtopic_id, subtopic, content, quiz, is_default, audio_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 clean(n.id),
                 clean(n.title),
                 clean(n.subject_id || n.subjectId),
@@ -276,6 +278,7 @@ export const saveNotes = async (notes: any[]) => {
                 clean(n.content),
                 clean(typeof n.quiz === 'string' ? n.quiz : JSON.stringify(n.quiz)),
                 n.is_default ? 1 : 0,
+                clean(n.audio_url || n.audioUrl),
                 clean(n.created_at)
             );
         }
@@ -295,7 +298,7 @@ export const saveJambTexts = async (texts: any[]) => {
     return enqueueDbOperation(async () => {
         const database = await initLocalDatabase();
         for (const t of texts) {
-            await database.runAsync('INSERT OR REPLACE INTO jamb_texts (id, type, title, author, thumbnail_url, category, content, quiz, subheading_id, subheading, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            await database.runAsync('INSERT OR REPLACE INTO jamb_texts (id, type, title, author, thumbnail_url, category, content, quiz, subheading_id, subheading, is_default, audio_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 clean(t.id),
                 clean(t.type),
                 clean(t.title),
@@ -307,6 +310,7 @@ export const saveJambTexts = async (texts: any[]) => {
                 clean(t.subheading_id || t.subheadingId),
                 clean(t.subheading),
                 t.is_default ? 1 : 0,
+                clean(t.audio_url || t.audioUrl),
                 clean(t.created_at)
             );
         }

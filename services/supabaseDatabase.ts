@@ -1170,7 +1170,8 @@ export const addNote = async (title: string, subject: string, topic: string, con
         subtopic: hierarchy?.subtopic || null,
         content,
         quiz,
-        is_default: Boolean(hierarchy?.is_default)
+        is_default: Boolean(hierarchy?.is_default),
+        audio_url: hierarchy?.audio_url || null
       }])
       .select()
       .single();
@@ -1197,6 +1198,7 @@ type NoteUpdatePayload = {
   content?: string;
   quiz?: any;
   is_default?: boolean;
+  audio_url?: string | null;
 };
 
 export const updateNote = async (id: string, updates: NoteUpdatePayload) => {
@@ -1501,7 +1503,12 @@ export const addJambText = async (
   quiz?: any[],
   category?: string,
   thumbnail_url?: string,
-  extra?: { subheading_id?: string; subheading?: string; is_default?: boolean }
+  extra?: { 
+    subheading_id?: string | null; 
+    subheading?: string | null; 
+    is_default?: boolean; 
+    audio_url?: string | null 
+  }
 ) => {
   try {
     const { data, error } = await supabase
@@ -1516,7 +1523,8 @@ export const addJambText = async (
         thumbnail_url,
         subheading_id: extra?.subheading_id || null,
         subheading: extra?.subheading || null,
-        is_default: extra?.is_default ?? false
+        is_default: extra?.is_default ?? false,
+        audio_url: extra?.audio_url || null
       }])
       .select()
       .single();
@@ -1542,9 +1550,10 @@ export const updateJambText = async (
     quiz?: any[];
     category?: string;
     thumbnail_url?: string;
-    subheading_id?: string;
-    subheading?: string;
+    subheading_id?: string | null;
+    subheading?: string | null;
     is_default?: boolean;
+    audio_url?: string | null;
   }
 ) => {
   try {
@@ -1559,6 +1568,42 @@ export const updateJambText = async (
     return data;
   } catch (error) {
     console.error('Error updating JAMB text:', error);
+    throw error;
+  }
+};
+
+/**
+ * Upload Audio file to Supabase Storage
+ * Useful for Note voice notes or JAMB text voice notes
+ */
+export const uploadAudioFile = async (file: any, type: 'notes' | 'jamb-texts') => {
+  try {
+    const bucketName = 'voice-notes';
+    const fileName = `${type}/${Date.now()}_${file.name.replace(/\s/g, '_')}`;
+
+    const response = await fetch(file.uri);
+    const blob = await response.blob();
+    const arrayBuffer = await new Response(blob).arrayBuffer();
+
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .upload(fileName, arrayBuffer, {
+        contentType: file.mimeType || 'audio/mpeg',
+        upsert: false
+      });
+
+    if (error) throw error;
+
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(fileName);
+
+    return {
+      path: data.path,
+      publicUrl: urlData.publicUrl,
+    };
+  } catch (error) {
+    console.error('Error uploading audio file:', error);
     throw error;
   }
 };

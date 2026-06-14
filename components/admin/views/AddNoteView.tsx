@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Modal, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import { Audio } from 'expo-av';
 import * as supabaseDB from '../../../services/supabaseDatabase';
 import { useAppStore } from '../../../store/useAppStore';
 import { ThemeColors, COLORS } from '../../../theme/colors';
@@ -23,6 +25,8 @@ type SubtopicDraft = {
     id: string;
     title: string;
     content: string;
+    localAudioFile?: any;
+    audioUrl: string;
     quiz: QuizQuestionDraft[];
 };
 
@@ -35,6 +39,7 @@ const createSubtopicDraft = (): SubtopicDraft => ({
     id: Date.now().toString(),
     title: '',
     content: '',
+    audioUrl: '',
     quiz: [],
 });
 
@@ -60,6 +65,8 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
     const [subtopics, setSubtopics] = useState<SubtopicDraft[]>([createSubtopicDraft()]);
     const [loading, setLoading] = useState(false);
     const [keyboardExtraSpace, setKeyboardExtraSpace] = useState(false);
+    const [isRecording, setIsRecording] = useState<string | null>(null);
+    const [recordingInstance, setRecordingInstance] = useState<Audio.Recording | null>(null);
     const [defaultSubtopicId, setDefaultSubtopicId] = useState(subtopics[0].id);
 
     useEffect(() => {
@@ -172,6 +179,103 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
         }));
     };
 
+    const startRecording = async (subtopicId: string) => {
+        try {
+            const permission = await Audio.requestPermissionsAsync();
+            if (permission.status !== 'granted') {
+                Alert.alert('Permission Denied', 'Please allow microphone access to record voice notes.');
+                return;
+            }
+
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: true,
+                playsInSilentModeIOS: true,
+            });
+
+            const { recording } = await Audio.Recording.createAsync(
+                Audio.RecordingOptionsPresets.HIGH_QUALITY
+            );
+            
+            setRecordingInstance(recording);
+            setIsRecording(subtopicId);
+        } catch (err) {
+            console.error('Failed to start recording', err);
+            Alert.alert('Error', 'Could not start recording');
+        }
+    };
+
+    const stopRecording = async (index: number) => {
+        if (!recordingInstance) return;
+        
+        try {
+            setIsRecording(null);
+            await recordingInstance.stopAndUnloadAsync();
+            const uri = recordingInstance.getURI();
+            setRecordingInstance(null);
+
+            if (uri) {
+                updateSubtopic(index, 'localAudioFile', {
+                    uri,
+                    name: `recording_note_${Date.now()}.m4a`,
+                    mimeType: 'audio/m4a'
+                });
+            }
+        } catch (err) {
+            console.error('Failed to stop recording', err);
+        }
+    };
+
+    const pickAudio = async (index: number) => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: 'audio/*',
+                copyToCacheDirectory: true
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                updateSubtopic(index, 'localAudioFile', {
+                    uri: asset.uri,
+                    name: asset.name,
+                    mimeType: asset.mimeType
+                });
+            }
+        } catch (err) {
+            console.error('Error picking audio', err);
+        }
+    };
+
+    const playAudio = async (draft: SubtopicDraft) => {
+        try {
+            const uri = draft.localAudioFile?.uri || draft.audioUrl;
+            if (!uri) return;
+
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: false,
+                playsInSilentModeIOS: true,
+            });
+
+            const { sound } = await Audio.Sound.createAsync({ uri });
+            await sound.playAsync();
+        } catch (err) {
+            Alert.alert('Error', 'Could not play audio');
+        }
+    };
+
+    const removeAudio = (index: number) => {
+        Alert.alert(
+            "Remove Audio",
+            "Are you sure you want to remove this voice note?",
+            [
+                { text: "Cancel", style: "cancel" },
+                { text: "Remove", style: "destructive", onPress: () => {
+                    updateSubtopic(index, 'audioUrl', '');
+                    updateSubtopic(index, 'localAudioFile', null);
+                }}
+            ]
+        );
+    };
+
     const handleExplanationFocus = () => {
         setKeyboardExtraSpace(true);
         setTimeout(() => {
@@ -201,11 +305,21 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
         try {
             setLoading(true);
             const cleanTopic = topic.trim();
+            const subject = selectedSubject;
+            if (!subject) throw new Error("Subject is required");
+
             for (const item of cleanSubtopics) {
-                await supabaseDB.addNote(cleanTopic, selectedSubject.name, cleanTopic, item.content, item.quiz.length > 0 ? item.quiz : undefined, {
-                    subject_id: selectedSubject.id,
+                let finalAudioUrl = item.audioUrl;
+                if (item.localAudioFile) {
+                    const audioRes = await supabaseDB.uploadAudioFile(item.localAudioFile, 'notes');
+                    finalAudioUrl = audioRes.publicUrl;
+                }
+
+                await supabaseDB.addNote(cleanTopic, subject.name, cleanTopic, item.content, item.quiz.length > 0 ? item.quiz : undefined, {
+                    subject_id: subject.id,
                     subtopic: item.title,
                     is_default: item.id === defaultSubtopicId,
+                    audio_url: finalAudioUrl,
                 });
             }
             Alert.alert('Success', `${cleanSubtopics.length} subtopic${cleanSubtopics.length === 1 ? '' : 's'} created successfully!`);
@@ -305,6 +419,47 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
                                     placeholder="e.g. Newton's First Law"
                                     placeholderTextColor={isDark ? COLORS.slate[500] : COLORS.slate[400]}
                                 />
+                            </View>
+
+                            <View style={styles.inputGroup}>
+                                <Text style={[styles.label, { color: colors.textSecondary }]}>VOICE NOTE / EXPLANATION</Text>
+                                <View style={[styles.audioContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                                    {(item.audioUrl || item.localAudioFile) ? (
+                                        <View style={styles.audioPlayerRow}>
+                                            <TouchableOpacity 
+                                                style={[styles.audioActionBtn, { backgroundColor: colors.primary }]}
+                                                onPress={() => playAudio(item)}
+                                            >
+                                                <Ionicons name="play" size={20} color="#FFF" />
+                                                <Text style={styles.audioActionText}>{item.localAudioFile ? 'Preview' : 'Listen'}</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity 
+                                                style={[styles.audioActionBtn, { backgroundColor: '#EF4444' }]}
+                                                onPress={() => removeAudio(subtopicIndex)}
+                                            >
+                                                <Ionicons name="trash" size={20} color="#FFF" />
+                                            </TouchableOpacity>
+                                        </View>
+                                    ) : (
+                                        <View style={styles.audioControlsRow}>
+                                            <>
+                                                <TouchableOpacity 
+                                                    style={[styles.audioBtn, isRecording === item.id && styles.audioBtnRecording]}
+                                                    onPress={() => isRecording === item.id ? stopRecording(subtopicIndex) : startRecording(item.id)}
+                                                >
+                                                    <Ionicons name={isRecording === item.id ? "stop-circle" : "mic"} size={22} color={isRecording === item.id ? "#FFF" : colors.primary} />
+                                                    <Text style={[styles.audioBtnText, isRecording === item.id && { color: '#FFF' }]}>
+                                                        {isRecording === item.id ? "Recording..." : "Record"}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity style={styles.audioBtn} onPress={() => pickAudio(subtopicIndex)}>
+                                                    <Ionicons name="cloud-upload-outline" size={22} color={colors.primary} />
+                                                    <Text style={styles.audioBtnText}>Upload File</Text>
+                                                </TouchableOpacity>
+                                            </>
+                                        </View>
+                                    )}
+                                </View>
                             </View>
 
                             <View style={styles.inputGroup}>
@@ -538,6 +693,23 @@ const styles = StyleSheet.create({
     },
     defaultBtnText: { color: '#864b03', fontSize: 11, fontWeight: '900' },
     defaultBtnTextActive: { color: '#FFFFFF' },
+    audioContainer: { padding: 12, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed' },
+    audioControlsRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+    audioBtn: { 
+        flex: 1, 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        gap: 8, 
+        paddingVertical: 10, 
+        borderRadius: 12, 
+        backgroundColor: 'rgba(134, 75, 3, 0.05)' 
+    },
+    audioBtnRecording: { backgroundColor: '#EF4444' },
+    audioBtnText: { fontSize: 13, fontWeight: '700', color: '#864b03' },
+    audioPlayerRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+    audioActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
+    audioActionText: { color: '#FFF', fontWeight: '800', fontSize: 13 },
     topicQuizCard: {
         padding: 20,
         borderRadius: 24,
