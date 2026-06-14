@@ -370,6 +370,7 @@ export function EditNoteView({ noteId, onBack, onSave }: EditNoteViewProps) {
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
                     keyboardDismissMode="none"
+                    stickyHeaderIndices={[3]}
                 >
                     <View style={styles.inputGroup}>
                         <Text style={[styles.label, { color: colors.textSecondary }]}>TITLE</Text>
@@ -411,7 +412,8 @@ export function EditNoteView({ noteId, onBack, onSave }: EditNoteViewProps) {
                         />
                     </View>
 
-                    <View style={styles.subtopicHeader}>
+                    <View style={[styles.subtopicHeader, { backgroundColor: colors.background }]}>
+                        
                         <Text style={[styles.sectionTitle, { color: colors.text }]}>Subtopics ({subtopics.length})</Text>
                         <TouchableOpacity onPress={addSubtopic} style={styles.addBtn}>
                             <Ionicons name="add-circle" size={24} color={colors.primary} />
@@ -624,7 +626,14 @@ const styles = StyleSheet.create({
         borderColor: '#D7CCC8',
         color: '#3E2723'
     },
-    subtopicHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    subtopicHeader: { 
+        flexDirection: 'row', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        paddingVertical: 10,
+        marginBottom: 16,
+        zIndex: 10
+    },
     subtopicCard: {
         padding: 20,
         borderRadius: 24,

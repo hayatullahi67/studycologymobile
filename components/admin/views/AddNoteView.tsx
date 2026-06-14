@@ -393,6 +393,7 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
                     keyboardDismissMode="none"
+                    stickyHeaderIndices={[2]}
                 >
                     <View style={styles.inputGroup}>
                         <Text style={[styles.label, { color: colors.textSecondary }]}>SUBJECT</Text>
@@ -423,7 +424,7 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
                         />
                     </View>
 
-                    <View style={styles.subtopicHeader}>
+                    <View style={[styles.subtopicHeader, { backgroundColor: colors.background }]}>
                         <Text style={[styles.sectionTitle, { color: colors.text }]}>Subtopics ({subtopics.length})</Text>
                         <TouchableOpacity onPress={addSubtopic} style={styles.addBtn}>
                             <Ionicons name="add-circle" size={24} color={colors.primary} />
@@ -717,7 +718,14 @@ const styles = StyleSheet.create({
         borderColor: '#D7CCC8'
     },
     subjectSelectorText: { flex: 1, fontSize: 15, fontWeight: '700' },
-    subtopicHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    subtopicHeader: { 
+        flexDirection: 'row', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        paddingVertical: 10,
+        marginBottom: 16,
+        zIndex: 10
+    },
     subtopicCard: {
         padding: 20,
         borderRadius: 24,
