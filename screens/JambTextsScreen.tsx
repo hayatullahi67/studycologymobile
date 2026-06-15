@@ -405,11 +405,13 @@ export function JambTextsScreen() {
     const grouped = React.useMemo(() => {
         const map = new Map<string, any[]>();
         for (const t of texts) {
-            const cat = t.category?.trim() || (t.type === 'literature' ? 'Jamb Prose' : 'English Texts');
+            const cat = t.category?.trim() || (t.type === 'literature' ? 'Literature' : 'English');
             if (!map.has(cat)) map.set(cat, []);
             map.get(cat)!.push(t);
         }
-        return Array.from(map.entries()).map(([category, books]) => ({ category, books }));
+        return Array.from(map.entries())
+            .map(([category, books]) => ({ category, books }))
+            .sort((a, b) => a.category.localeCompare(b.category));
     }, [texts]);
 
     const renderBookCard = (text: any) => (
@@ -455,7 +457,10 @@ export function JambTextsScreen() {
         return (
             <View style={styles.section}>
                 <View style={styles.sectionHeaderRow}>
-                    <Text style={styles.sectionTitle}>{item.category}</Text>
+                    <View style={styles.categoryLabelContainer}>
+                        <Ionicons name="folder-open" size={16} color="#864b03" style={{ marginRight: 8 }} />
+                        <Text style={styles.sectionTitle}>{item.category.toUpperCase()}</Text>
+                    </View>
                     <View style={styles.countBadge}>
                         <Text style={styles.countBadgeText}>
                             {item.books.length} BOOK{item.books.length !== 1 ? 'S' : ''}
@@ -547,12 +552,13 @@ const styles = StyleSheet.create({
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF8F6' },
     loadingText: { marginTop: 12, fontSize: 14, color: '#94A3B8', fontWeight: '600' },
     section: { marginBottom: 28 },
-    sectionTitle: { fontSize: 16, fontWeight: '900', color: '#3E2723', textTransform: 'capitalize' },
+    sectionTitle: { fontSize: 14, fontWeight: '900', color: '#3E2723', letterSpacing: 0.5 },
+    categoryLabelContainer: { flexDirection: 'row', alignItems: 'center' },
     sectionHeaderRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 16,
+        marginBottom: 14,
         marginTop: 8,
     },
     countBadge: {
