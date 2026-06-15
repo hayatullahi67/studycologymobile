@@ -60,6 +60,7 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
     const [category, setCategory] = useState('');
     const [thumbnailUrl, setThumbnailUrl] = useState('');
     const [selectedFile, setSelectedFile] = useState<any>(null);
+    const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
 
     const [subheadings, setSubheadings] = useState<SubheadingDraft[]>([createSubheadingDraft()]);
     const [defaultSubheadingId, setDefaultSubheadingId] = useState(subheadings[0].id);
@@ -528,13 +529,33 @@ export function AddJambTextView({ type, textId, onBack, onSave }: AddJambTextVie
 
                         <View style={styles.inputGroup}>
                             <Text style={[styles.label, { color: colors.textSecondary }]}>CATEGORY</Text>
-                            <TextInput
-                                style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]}
-                                value={category}
-                                onChangeText={setCategory}
-                                placeholder="e.g. Jamb Prose, African Prose"
-                                placeholderTextColor={isDark ? COLORS.slate[500] : COLORS.slate[400]}
-                            />
+                            <TouchableOpacity
+                                style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+                                onPress={() => setShowCategoryDropdown(!showCategoryDropdown)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={{ color: category ? colors.text : (isDark ? COLORS.slate[500] : COLORS.slate[400]), fontSize: 16, fontWeight: '600' }}>
+                                    {category || 'Select Category'}
+                                </Text>
+                                <Ionicons name={showCategoryDropdown ? "chevron-up" : "chevron-down"} size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+
+                            {showCategoryDropdown && (
+                                <View style={[styles.dropdownOptions, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                                    {['Literature', 'English'].map((opt, index, arr) => (
+                                        <TouchableOpacity
+                                            key={opt}
+                                            style={[styles.dropdownOption, { borderBottomColor: colors.border, borderBottomWidth: index === arr.length - 1 ? 0 : 1 }]}
+                                            onPress={() => {
+                                                setCategory(opt);
+                                                setShowCategoryDropdown(false);
+                                            }}
+                                        >
+                                            <Text style={[styles.dropdownOptionText, { color: colors.text }]}>{opt}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            )}
                         </View>
 
                         {/* Maintain book cover uploading capabilities */}
@@ -899,5 +920,24 @@ const styles = StyleSheet.create({
         minHeight: 84,
         paddingTop: 12,
         paddingBottom: 12
+    },
+    dropdownOptions: {
+        marginTop: 8,
+        borderRadius: 16,
+        borderWidth: 1,
+        overflow: 'hidden',
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    dropdownOption: {
+        paddingVertical: 14,
+        paddingHorizontal: 18,
+    },
+    dropdownOptionText: {
+        fontSize: 15,
+        fontWeight: '600',
     }
 });

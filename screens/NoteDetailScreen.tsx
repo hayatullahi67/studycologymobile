@@ -830,6 +830,7 @@ import {
     ActivityIndicator,
     TouchableOpacity,
     FlatList,
+    TextInput,
     Alert,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
@@ -889,6 +890,7 @@ export function NoteDetailScreen() {
     const bodySize = fontSize === 'small' ? 14 : fontSize === 'medium' ? 16 : fontSize === 'large' ? 19 : 22;
 
     const [topicNotes, setTopicNotes] = useState<any[]>([]);
+    const [searchQuery, setSearchQuery] = useState('');
     const [topicTitle, setTopicTitle] = useState('');
     const [loading, setLoading] = useState(true);
 
@@ -909,6 +911,15 @@ export function NoteDetailScreen() {
     const speechCharIndexRef = useRef(0);
     const speechStartIndexRef = useRef(0);
     const isPausingRef = useRef(false);
+
+    const filteredTopicNotes = React.useMemo(() => {
+        if (!searchQuery.trim()) return topicNotes;
+        const q = searchQuery.toLowerCase();
+        return topicNotes.filter(n =>
+            (n.subtopic || n.title || '').toLowerCase().includes(q) ||
+            (n.content && stripHtml(n.content).toLowerCase().includes(q))
+        );
+    }, [topicNotes, searchQuery]);
 
     const noteIdsKey = `${noteId}|${(noteIds && noteIds.length > 0 ? noteIds : [noteId]).join('|')}`;
 
@@ -1196,7 +1207,7 @@ export function NoteDetailScreen() {
                 />
 
                 <FlatList
-                    data={topicNotes}
+                    data={filteredTopicNotes}
                     keyExtractor={(item) => item.id}
                     contentContainerStyle={styles.listContent}
                     ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -1209,8 +1220,26 @@ export function NoteDetailScreen() {
                             </View>
                             <Text style={styles.listTitle}>{topicTitle}</Text>
                             <Text style={styles.countLabel}>
-                                {topicNotes.length} subtopic{topicNotes.length !== 1 ? 's' : ''}
+                                {filteredTopicNotes.length} subtopic{filteredTopicNotes.length !== 1 ? 's' : ''}
+                                {searchQuery.trim() !== '' && ` (filtered from ${topicNotes.length})`}
                             </Text>
+
+                            <View style={styles.searchContainer}>
+                                <Ionicons name="search" size={20} color={C.textMuted} />
+                                <TextInput
+                                    style={styles.searchInput}
+                                    placeholder="Search subtopics..."
+                                    placeholderTextColor={C.textFaint}
+                                    value={searchQuery}
+                                    onChangeText={setSearchQuery}
+                                    autoCorrect={false}
+                                />
+                                {searchQuery.length > 0 && (
+                                    <TouchableOpacity onPress={() => setSearchQuery('')}>
+                                        <Ionicons name="close-circle" size={20} color={C.textMuted} />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
                         </View>
                     }
                     renderItem={({ item }) => (
@@ -1501,6 +1530,25 @@ const styles = StyleSheet.create({
         marginTop: 10, marginBottom: 4, lineHeight: 28,
     },
     countLabel: { fontSize: 12, fontWeight: '800', color: C.brown },
+
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: C.white,
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        marginTop: 16,
+        borderWidth: 1,
+        borderColor: C.creamBorder,
+        height: 46,
+    },
+    searchInput: {
+        flex: 1,
+        marginLeft: 8,
+        fontSize: 15,
+        color: C.text,
+        fontWeight: '600',
+    },
 
     separator: { height: 1, backgroundColor: C.divider, marginLeft: 44 },
 

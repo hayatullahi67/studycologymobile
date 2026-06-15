@@ -510,7 +510,10 @@ export function JambTextsScreen() {
 
             {texts.length === 0 ? (
                 <ScrollView contentContainerStyle={styles.emptyScroll}>
-                    <AdCarousel placement="texts" style={{ marginBottom: 24 }} />
+                    <View style={{ width: '8%', alignItems: 'center', justifyContent: 'center' }}>
+                    <AdCarousel placement="texts" style={{ marginBottom: 24 , width: '8%'}} />
+
+                    </View>
                     <View style={styles.empty}>
                         <Ionicons
                             name="documents-outline"
@@ -523,11 +526,7 @@ export function JambTextsScreen() {
                             Please sync your data from the Home screen to download JAMB texts.
                         </Text>
                         {/* DEBUG BOX — remove after confirming data loads */}
-                        {debugInfo ? (
-                            <View style={styles.debugBox}>
-                                <Text style={styles.debugText}>🔍 {debugInfo}</Text>
-                            </View>
-                        ) : null}
+                        
                     </View>
                 </ScrollView>
             ) : (
@@ -548,10 +547,10 @@ export function JambTextsScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#FFF8F6' },
-    listContent: { paddingHorizontal: 16, paddingBottom: 40 },
+    listContent: {  paddingBottom: 40 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF8F6' },
     loadingText: { marginTop: 12, fontSize: 14, color: '#94A3B8', fontWeight: '600' },
-    section: { marginBottom: 28 },
+    section: { marginBottom: 28 , paddingHorizontal: 16},
     sectionTitle: { fontSize: 14, fontWeight: '900', color: '#3E2723', letterSpacing: 0.5 },
     categoryLabelContainer: { flexDirection: 'row', alignItems: 'center' },
     sectionHeaderRow: {
