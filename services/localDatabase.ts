@@ -117,28 +117,22 @@ export const initLocalDatabase = async () => {
                 // Column likely already exists or users table is newly created.
             }
 
-            // Migration: Add columns to jamb_texts
-            try {
-                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN quiz TEXT;');
-            } catch (e) { }
-            try {
-                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN category TEXT;');
-            } catch (e) { }
-            try {
-                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN thumbnail_url TEXT;');
-            } catch (e) { }
-            try {
-                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN subheading_id TEXT;');
-            } catch (e) { }
-            try {
-                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN subheading TEXT;');
-            } catch (e) { }
-            try {
-                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN is_default INTEGER DEFAULT 0;');
-                await database.execAsync('ALTER TABLE jamb_texts ADD COLUMN audio_url TEXT;');
-                console.log('[DB] Migration: Added new columns and subheading support to jamb_texts table.');
-            } catch (e) {
-                // Column likely already exists
+            const jambTextColumnMigrations = [
+                'ALTER TABLE jamb_texts ADD COLUMN quiz TEXT;',
+                'ALTER TABLE jamb_texts ADD COLUMN category TEXT;',
+                'ALTER TABLE jamb_texts ADD COLUMN thumbnail_url TEXT;',
+                'ALTER TABLE jamb_texts ADD COLUMN subheading_id TEXT;',
+                'ALTER TABLE jamb_texts ADD COLUMN subheading TEXT;',
+                'ALTER TABLE jamb_texts ADD COLUMN is_default INTEGER DEFAULT 0;',
+                'ALTER TABLE jamb_texts ADD COLUMN audio_url TEXT;',
+            ];
+
+            for (const migration of jambTextColumnMigrations) {
+                try {
+                    await database.execAsync(migration);
+                } catch (e) {
+                    // Column likely already exists.
+                }
             }
 
             try {
