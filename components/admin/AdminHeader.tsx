@@ -23,11 +23,11 @@ export function AdminHeader({ title = 'STUDYCOLOGY Admin' }: AdminHeaderProps) {
     return (
         <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#EFEBE9' }]}>
             <View style={styles.left}>
-                <Image
+                {/* <Image
                     source={require('../../assets/logo.png')}
                     style={styles.logoImage}
                     resizeMode="contain"
-                />
+                /> */}
                 <View style={[styles.badge, { backgroundColor: '#864b03' }]}>
                     <Text style={styles.badgeText}>ADMIN</Text>
                 </View>

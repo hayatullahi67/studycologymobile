@@ -27,13 +27,19 @@ export function NotesScreen() {
       .catch((error) => console.error('Error loading PDF subject ids:', error));
 
     localDB.getLocalSubjects()
-      .then((items) => setSubjects(items.filter(item => item.exam_name !== 'GST' && item.exam_name !== 'POSTUTME')))
+      .then((items) => setSubjects(items.filter((item: any) => {
+        const name = (item.name || '').trim().toLowerCase();
+        return item.exam_name !== 'GST' && item.exam_name !== 'POSTUTME' && name !== 'crs' && name !== 'crk';
+      })))
       .catch((error) => console.error('Error loading subjects:', error));
   }, []);
 
   useEffect(() => {
     if (storedSubjects.length > 0) {
-      setSubjects(storedSubjects.filter(item => item.exam_name !== 'GST' && item.exam_name !== 'POSTUTME'));
+      setSubjects(storedSubjects.filter((item: any) => {
+        const name = (item.name || '').trim().toLowerCase();
+        return item.exam_name !== 'GST' && item.exam_name !== 'POSTUTME' && name !== 'crs' && name !== 'crk';
+      }));
     }
   }, [storedSubjects]);
 
@@ -166,7 +172,7 @@ export function NotesScreen() {
       const bOldest = Math.min(...b.notes.map((n: any) => new Date(n.created_at || 0).getTime()));
       return aOldest - bOldest;
     })
-  , [visibleSubjects, notesBySubjectName, getTopicKey, query]);
+    , [visibleSubjects, notesBySubjectName, getTopicKey, query]);
 
   const topicGroups = selectedSubject ? makeGroups(
     selectedSubject.notes,

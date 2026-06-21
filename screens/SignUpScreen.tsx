@@ -67,7 +67,7 @@ export function SignUpScreen() {
             <View style={styles.header}>
                 <View style={styles.iconBox}>
                     <Image
-                        source={require('../assets/logo.png')}
+                        source={require('../assets/doodle_pattern.png')}
                         style={styles.logoImage}
                         resizeMode="contain"
                     // tintColor="#864b03"
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
     bg: { backgroundColor: '#FFFFFF' },
     container: { padding: 24, paddingBottom: 40 },
     header: { alignItems: 'center', marginBottom: 40 },
-    iconBox: { width: 160, height: 150, borderRadius: 30, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+    iconBox: { width: 160, height: 150, borderRadius: 30,        },
     logoImage: { width: '100%', height: '100%' },
     title: { fontSize: 28, fontWeight: '900', color: '#000000', marginBottom: 8 },
     subtitle: { fontSize: 16, color: '#000000', fontWeight: '500' },

@@ -1,0 +1,139 @@
+name: Android Build (Expo)
+
+# Run on pushes to main and on manual workflow dispatch
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: windows-latest               # Windows runner (matches your local environment)
+    defaults:
+      run:
+        shell: pwsh                       # Use PowerShell for all steps (easier path handling)
+
+    # -------------------------------------------------
+    # 1️⃣  Environment variables (adjust as needed)
+    # -------------------------------------------------
+    env:
+      # Expo SDK version – keep in sync with your package.json (optional)
+      EXPO_SDK: "48.0.0"
+      # If you want a signed release, provide these secrets in the repo settings
+      # (BASE64‑encoded keystore, alias, passwords). Comment the sign‑step if not needed.
+      KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}          # base64 of your .jks file
+      KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    steps:
+      # -------------------------------------------------
+      # 2️⃣  Checkout the repo
+      # -------------------------------------------------
+      - name: ⏳ Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------
+      # 3️⃣  Set up JDK 11 (the version that works with Kotlin 2.1.x)
+      # -------------------------------------------------
+      - name: 📦 Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'          # AdoptOpenJDK / Eclipse Temurin
+          java-version: '11'
+          cache: 'gradle'                  # Cache Gradle files for faster builds
+
+      # -------------------------------------------------
+      # 4️⃣  Set up Node + npm (use the LTS version)
+      # -------------------------------------------------
+      - name: 🟢 Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'              # >= 18 works; 20 is the current LTS
+          cache: 'npm'
+
+      # -------------------------------------------------
+      # 5️⃣  Install Expo‑CLI globally
+      # -------------------------------------------------
+      - name: 📦 Install Expo CLI
+        run: npm i -g expo-cli
+
+      # -------------------------------------------------
+      # 6️⃣  Install project dependencies
+      # -------------------------------------------------
+      - name: 📦 Install npm dependencies
+        run: npm ci    # clean‑install using lockfile
+
+      # -------------------------------------------------
+      # 7️⃣  (Optional) Install Android SDK command‑line tools
+      # -------------------------------------------------
+      # If you need the Android SDK for native builds, the following step
+      # installs the command‑line tools and the required platforms/build‑tools.
+      # Comment out if you already have them cached from previous runs.
+      - name: 🛠️ Install Android SDK command‑line tools
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34                 # Adjust to the SDK version you target
+          ndk-version: 25.2.9519653     # Optional – needed only for native libs
+          # Gradle will automatically download the rest (platform‑tools, build‑tools)
+
+      # -------------------------------------------------
+      # 8️⃣  Generate native Android project (pre‑build)
+      # -------------------------------------------------
+      - name: 🏗️ Run Expo prebuild
+        run: npx expo prebuild --no-install   # --no-install skips npm install again
+
+      # -------------------------------------------------
+      # 9️⃣  (Optional) Provide keystore for signing
+      # -------------------------------------------------
+      # This step decodes a base64‑encoded .jks you stored as a secret
+      # and puts it at android/app/my-release-key.jks.
+      # If you do not need a signed release, comment out the three lines below.
+      - name: 🔐 Decode keystore (optional)
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          $keystorePath = "android/app/my-release-key.jks"
+          [IO.File]::WriteAllBytes($keystorePath, [Convert]::FromBase64String($env:KEYSTORE_B64))
+          # Add Gradle properties that point to the keystore
+          $propsPath = "android/gradle.properties"
+          Add-Content -Path $propsPath -Value "`nMYAPP_RELEASE_STORE_FILE=my-release-key.jks"
+          Add-Content -Path $propsPath -Value "MYAPP_RELEASE_KEY_ALIAS=$env:KEYSTORE_ALIAS"
+          Add-Content -Path $propsPath -Value "MYAPP_RELEASE_STORE_PASSWORD=$env:KEYSTORE_PASSWORD"
+          Add-Content -Path $propsPath -Value "MYAPP_RELEASE_KEY_PASSWORD=$env:KEY_PASSWORD"
+
+      # -------------------------------------------------
+      # 🔟  Build the release APK/AAB
+      # -------------------------------------------------
+      - name: 🏁 Assemble Release
+        run: |
+          cd android
+          .\gradlew.bat assembleRelease
+        # The `gradlew.bat` script uses the JDK we set up earlier.
+
+      # -------------------------------------------------
+      # 1️⃣1️⃣  Collect the generated artifacts
+      # -------------------------------------------------
+      - name: 📦 Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: 📦 Upload AAB artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: warn   # AAB is optional; many people only need the APK
+
+      # -------------------------------------------------
+      # 1️⃣2️⃣  Clean‑up (optional)
+      # -------------------------------------------------
+      - name: 🗑️ Clean up workspace (optional)
+        if: always()
+        run: |
+          # Delete the decoded keystore so it never stays in the runner’s filesystem
+          if (Test-Path "android/app/my-release-key.jks") {
+            Remove-Item "android/app/my-release-key.jks"
+          }

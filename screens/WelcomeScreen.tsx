@@ -16,14 +16,14 @@ export function WelcomeScreen() {
         <SafeAreaView style={styles.container}>
             <Image
                 // source={require('../assets/doodle_pattern.png')}
-                style={styles.doodleBG}
+                // style={styles.doodleBG}
                 // resizeMode="repeat"
             />
             <View style={styles.content}>
                 {/* Top Branding Section */}
                 <View style={styles.branding}>
                     <Image
-                        source={require('../assets/logo.png')}
+                        source={require('../assets/doodle_pattern.png')}
                         style={styles.logoImage}
                         resizeMode="contain"
                         tintColor={PRIMARY_BROWN}

@@ -203,7 +203,7 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
             const { recording } = await Audio.Recording.createAsync(
                 Audio.RecordingOptionsPresets.HIGH_QUALITY
             );
-            
+
             setRecordingInstance(recording);
             setIsRecording(subtopicId);
         } catch (err) {
@@ -214,7 +214,7 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
 
     const stopRecording = async (index: number) => {
         if (!recordingInstance) return;
-        
+
         try {
             setIsRecording(null);
             await recordingInstance.stopAndUnloadAsync();
@@ -303,14 +303,16 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
             "Are you sure you want to remove this voice note?",
             [
                 { text: "Cancel", style: "cancel" },
-                { text: "Remove", style: "destructive", onPress: async () => {
-                    if (activeAudioId === subtopics[index].id && soundRef.current) {
-                        await soundRef.current.stopAsync();
-                        setActiveAudioId(null);
+                {
+                    text: "Remove", style: "destructive", onPress: async () => {
+                        if (activeAudioId === subtopics[index].id && soundRef.current) {
+                            await soundRef.current.stopAsync();
+                            setActiveAudioId(null);
+                        }
+                        updateSubtopic(index, 'audioUrl', '');
+                        updateSubtopic(index, 'localAudioFile', null);
                     }
-                    updateSubtopic(index, 'audioUrl', '');
-                    updateSubtopic(index, 'localAudioFile', null);
-                }}
+                }
             ]
         );
     };
@@ -467,7 +469,7 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
                                     {(item.audioUrl || item.localAudioFile) ? (
                                         <View style={styles.audioPlayerColumn}>
                                             <View style={styles.audioPlayerRow}>
-                                                <TouchableOpacity 
+                                                <TouchableOpacity
                                                     style={[styles.audioActionBtn, { backgroundColor: colors.primary }]}
                                                     onPress={() => playAudio(item)}
                                                 >
@@ -476,7 +478,7 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
                                                         {activeAudioId === item.id ? (playbackStatus.isPlaying ? 'Playing' : 'Paused') : (item.localAudioFile ? 'Preview' : 'Listen')}
                                                     </Text>
                                                 </TouchableOpacity>
-                                                <TouchableOpacity 
+                                                <TouchableOpacity
                                                     style={[styles.audioActionBtn, { backgroundColor: '#EF4444' }]}
                                                     onPress={() => removeAudio(subtopicIndex)}
                                                 >
@@ -497,7 +499,7 @@ export function AddNoteView({ onBack, onSave }: AddNoteViewProps) {
                                     ) : (
                                         <View style={styles.audioControlsRow}>
                                             <>
-                                                <TouchableOpacity 
+                                                <TouchableOpacity
                                                     style={[styles.audioBtn, isRecording === item.id && styles.audioBtnRecording]}
                                                     onPress={() => isRecording === item.id ? stopRecording(subtopicIndex) : startRecording(item.id)}
                                                 >
@@ -718,10 +720,10 @@ const styles = StyleSheet.create({
         borderColor: '#D7CCC8'
     },
     subjectSelectorText: { flex: 1, fontSize: 15, fontWeight: '700' },
-    subtopicHeader: { 
-        flexDirection: 'row', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
+    subtopicHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
         paddingVertical: 10,
         marginBottom: 16,
         zIndex: 10
@@ -756,15 +758,15 @@ const styles = StyleSheet.create({
     defaultBtnTextActive: { color: '#FFFFFF' },
     audioContainer: { padding: 12, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed' },
     audioControlsRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-    audioBtn: { 
-        flex: 1, 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        gap: 8, 
-        paddingVertical: 10, 
-        borderRadius: 12, 
-        backgroundColor: 'rgba(134, 75, 3, 0.05)' 
+    audioBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingVertical: 10,
+        borderRadius: 12,
+        backgroundColor: 'rgba(134, 75, 3, 0.05)'
     },
     audioBtnRecording: { backgroundColor: '#EF4444' },
     audioBtnText: { fontSize: 13, fontWeight: '700', color: '#864b03' },

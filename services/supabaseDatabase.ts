@@ -1067,19 +1067,37 @@ export interface NoteData {
  */
 export const getNotes = async (limit?: number) => {
   try {
-    let query = supabase
-      .from('notes')
-      .select('*')
-      .order('created_at', { ascending: false });
-
     if (limit) {
-      query = query.limit(limit);
+      const { data, error } = await supabase
+        .from('notes')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+      return data || [];
     }
 
-    const { data, error } = await query;
+    let allNotes: any[] = [];
+    let from = 0;
+    const PAGE_SIZE = 1000;
 
-    if (error) throw error;
-    return data || [];
+    while (true) {
+      const { data, error } = await supabase
+        .from('notes')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+
+      allNotes = [...allNotes, ...data];
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+
+    return allNotes;
   } catch (error) {
     console.error('Error fetching notes:', error);
     throw error;

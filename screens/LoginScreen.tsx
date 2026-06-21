@@ -97,7 +97,7 @@ export function LoginScreen() {
             <View style={styles.header}>
                 <View style={styles.iconBox}>
                     <Image
-                        source={require('../assets/logo.png')}
+                        source={require('../assets/doodle_pattern.png')}
                         style={styles.logoImage}
                         resizeMode="contain"
                     />

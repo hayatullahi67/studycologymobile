@@ -177,7 +177,7 @@ export function HomeScreen() {
       const { data, error } = await supabase.functions.invoke('paystack-init', {
         body: {
           email: userProfile.email,
-          amount: 1500,
+          amount: 2000,
           metadata: {
             user_id: userProfile.id,
             device_id: device.deviceId,
@@ -362,7 +362,7 @@ export function HomeScreen() {
       <Screen scrollable={false} style={[styles.downloadScreen, { backgroundColor: colors.background }]}>
         <View style={styles.contentContainer}>
           <Image
-            source={require('../assets/logo.png')}
+            source={require('../assets/doodle_pattern.png')}
             style={styles.logoImage}
             resizeMode="contain"
           />

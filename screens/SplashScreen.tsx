@@ -97,7 +97,7 @@ export function SplashScreen() {
       <View style={styles.content}>
         <View style={styles.branding}>
           <Image
-            source={require('../assets/logo.png')}
+            source={require('../assets/doodle_pattern.png')}
             style={styles.logoImage}
             resizeMode="contain"
             tintColor={PRIMARY_BROWN}
